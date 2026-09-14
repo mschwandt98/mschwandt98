@@ -14,6 +14,10 @@ return [
     'timezone' => 'Europe/Berlin',
 
     'cinema' => [
+        // Numerische Kino-Kennung der Showings-API. 1391 = CinemaxX Magdeburg,
+        // belegt aus dem __NEXT_DATA__ der Programmseite. Leer lassen, um sie
+        // automatisch ermitteln und im Zustand merken zu lassen.
+        'id'           => '1391',
         'city'         => 'magdeburg',
         'name'         => 'CinemaxX Magdeburg',
         'base_url'     => 'https://www.cinemaxx.de',
@@ -23,6 +27,11 @@ return [
     // Bewusst breit: Ein Fehlalarm kostet eine Mail, ein verpasster Treffer
     // kostet den Marathon. Weitere Eintraege hier ergaenzen, wenn du auch
     // andere Reihen oder Previews beobachten willst.
+    //
+    // CinemaxX nennt den Film 2026 "Der Herr der Ringe Triple (Extended
+    // Version)" -- das erste Muster trifft darauf. Ein regulaerer
+    // Hobbit-Termin trifft absichtlich NICHT; ein "Hobbit Trilogie Marathon"
+    // dagegen schon.
     'watch_patterns' => [
         '/herr[ -]?der[ -]?ringe/u',
         '/lord[ -]?of[ -]?the[ -]?rings/u',
@@ -35,7 +44,9 @@ return [
     // Maerz als Marathon durchgeht.
     'date_window' => ['from' => '10-01', 'to' => '02-28'],
 
-    // Zusaetzlich zu Programmuebersicht und Sitemap immer mitgepruefte URLs.
+    // Nur fuer die HTML-Rueckfallebene relevant, falls die API einmal ausfaellt.
+    // Im Normalfall findet der Watcher den Film ueber die API, ohne eine URL
+    // zu kennen -- wichtig, weil der Slug jedes Jahr anders lautet.
     'known_urls' => [
         'https://www.cinemaxx.de/kinoprogramm/magdeburg/film/der-herr-der-ringe-triple-extended-version',
     ],

@@ -66,12 +66,20 @@ $varDir = sys_get_temp_dir() . '/kino-integration-' . bin2hex(random_bytes(4));
 @mkdir($varDir, 0775, true);
 
 $config = Config::fromArray([
-    'cinema'  => ['base_url' => $base, 'program_path' => '/kinoprogramm/magdeburg', 'city' => 'magdeburg'],
+    'cinema'  => ['id' => '1391', 'base_url' => $base,
+                  'program_path' => '/kinoprogramm/magdeburg', 'city' => 'magdeburg'],
     'known_urls' => [],   // ausdruecklich leer: Auffinden muss ueber Programm/Sitemap klappen
     'var_dir' => $varDir,
     'http'    => ['min_interval_per_host' => 0, 'retries' => 0, 'timeout' => 5],
     'smtp'    => ['host' => '', 'user' => '', 'pass' => '', 'from' => '', 'to' => ''],
+    'schedule' => ['html_crosscheck_seconds' => 0],
 ]);
+
+/** Legt fest, welches Szenario der Testserver ausliefert. */
+function scenario(string $name): void
+{
+    file_put_contents(__DIR__ . '/site/current.txt', $name . "\n");
+}
 
 function runOnce(Config $config, string $varDir): array
 {
@@ -84,15 +92,19 @@ function runOnce(Config $config, string $varDir): array
     }
 }
 
-// --- Lauf 1: Vorverkauf noch nicht gestartet --------------------------------
-echo "\nLauf 1 -- Vorverkauf angekuendigt, noch nicht buchbar\n" . str_repeat('-', 54) . "\n";
-file_put_contents($docRoot . '/current.txt', 'dated');
+// --- Lauf 1: Vorverkauf gesperrt (Embargo) --------------------------------
+echo "\nLauf 1 -- Embargo, Vorverkauf noch nicht offen\n" . str_repeat('-', 54) . "\n";
+scenario('embargo');
 $r1 = runOnce($config, $varDir);
 
 ok($r1['ran'], 'Lauf wurde ausgefuehrt');
 ok(count($r1['screenings']) === 1, 'genau eine Vorstellung gefunden', 'gefunden: ' . count($r1['screenings']));
 ok(($r1['screenings'][0]->status ?? null) === Status::Dated, 'Zustand ist DATED');
-ok(($r1['screenings'][0]->presaleStartsAt ?? null) === '2026-10-14T10:00:00', 'Vorverkaufsdatum erkannt');
+ok(($r1['screenings'][0]->source ?? null) === 'api', 'Quelle ist die API, nicht das HTML');
+ok(($r1['screenings'][0]->presaleStartsAt ?? null) === '2026-10-14T10:00:00',
+    'Vorverkaufsstart aus embargoEndDate');
+ok(($r1['screenings'][0]->startsAt ?? null) === '2026-11-07T12:00:00+01:00', 'echter Termin');
+
 $newMatches = array_filter($r1['events'], static fn (Event $e) => $e->type === Event::NEW_MATCH);
 ok(count($newMatches) === 1, 'genau ein new_match-Ereignis', 'Ereignisse: ' . count($r1['events']));
 
@@ -100,12 +112,11 @@ $state = json_decode((string)file_get_contents("$varDir/state.json"), true);
 ok(($state['meta']['last_status'] ?? null) === 'DATED', 'Zustand wurde gespeichert');
 ok(isset($state['meta']['next_check_at']), 'naechster Prueftermin wurde gesetzt');
 
-// Der Hobbit liegt im Programm und ist buchbar -- darf aber nicht auftauchen.
+// Der Hobbit ist im Kino buchbar -- darf aber nicht auftauchen.
 $titles = array_map(static fn ($s) => $s->title, $r1['screenings']);
 ok(!in_array('Der Hobbit: Smaugs Einoede', $titles, true),
     'buchbarer Hobbit loest keinen Marathon-Alarm aus');
 
-// Mailversand ist bewusst unkonfiguriert -- der Fehler muss auffallen.
 ok($r1['errors'] !== [], 'fehlgeschlagener Mailversand wird als Fehler gemeldet');
 ok(str_contains(implode(' ', $r1['errors']), 'SMTP'), 'Fehlermeldung nennt SMTP');
 
@@ -117,23 +128,46 @@ ok($r2['events'] === [], 'keine Aenderung -> kein Ereignis, keine Mail',
 
 // --- Lauf 3: Vorverkauf startet --------------------------------------------
 echo "\nLauf 3 -- Vorverkauf ist offen\n" . str_repeat('-', 54) . "\n";
-file_put_contents($docRoot . '/current.txt', 'bookable');
+scenario('bookable');
 $r3 = runOnce($config, $varDir);
 
 ok(($r3['screenings'][0]->status ?? null) === Status::Bookable, 'Zustand ist BOOKABLE');
 $alarm = array_values(array_filter($r3['events'], static fn (Event $e) => $e->isAlarm()));
 ok($alarm !== [], 'Hauptalarm wurde ausgeloest');
-ok(($alarm[0]->previousStatus ?? null) === 'DATED', 'Vorzustand DATED wird mitgeliefert');
-ok(str_contains((string)($r3['screenings'][0]->bookingUrl ?? ''), '/vorstellung/'),
-    'Buchungslink zeigt in den Buchungsflow');
+ok(($alarm[0]->previousStatus ?? null) === 'DATED',
+    'Vorzustand DATED wird mitgeliefert -- der Fingerprint blieb stabil');
+ok(str_contains((string)($r3['screenings'][0]->bookingUrl ?? ''), '/buchtickets/zusammenfassung/'),
+    'Buchungslink zeigt in den echten Buchungsflow');
 
-// --- Lauf 4: ausverkauft ----------------------------------------------------
-echo "\nLauf 4 -- ausverkauft\n" . str_repeat('-', 54) . "\n";
-file_put_contents($docRoot . '/current.txt', 'soldout');
+// --- Lauf 4: API meldet "unveraendert" (304) --------------------------------
+// Der gefaehrlichste Fall: Ohne Daten darf NICHT gefolgert werden, dass die
+// Vorstellung verschwunden ist.
+echo "\nLauf 4 -- API antwortet 304\n" . str_repeat('-', 54) . "\n";
+scenario('304');
 $r4 = runOnce($config, $varDir);
-ok(($r4['screenings'][0]->status ?? null) === Status::SoldOut, 'Zustand ist SOLD_OUT');
-ok(count(array_filter($r4['events'], static fn (Event $e) => $e->type === Event::STATUS_CHANGED)) === 1,
-    'Uebergang BOOKABLE -> SOLD_OUT wird gemeldet');
+$warnings = array_filter($r4['events'], static fn (Event $e) => $e->type === Event::WARNING);
+ok($warnings === [], 'kein "verschwunden"-Fehlalarm bei fehlenden Daten',
+    'Warnungen: ' . count($warnings));
+$state = json_decode((string)file_get_contents("$varDir/state.json"), true);
+ok(count($state['screenings']) === 1, 'gespeicherter Zustand bleibt erhalten');
+ok(($state['meta']['last_status'] ?? null) === 'BOOKABLE', 'letzter bekannter Zustand bleibt BOOKABLE');
+
+// --- Lauf 5: API faellt aus -> HTML-Rueckfallebene --------------------------
+echo "\nLauf 5 -- API faellt aus\n" . str_repeat('-', 54) . "\n";
+scenario('apifail');
+$r5 = runOnce($config, $varDir);
+ok(count($r5['screenings']) >= 1, 'die HTML-Rueckfallebene findet die Vorstellung trotzdem',
+    'gefunden: ' . count($r5['screenings']));
+ok(!in_array($r5['screenings'][0]->source ?? null, ['api', null], true),
+    'Quelle ist jetzt die HTML-Ebene statt der API',
+    'Quelle: ' . var_export($r5['screenings'][0]->source ?? null, true));
+ok(str_contains(implode(' ', $r5['errors']), 'API'), 'der API-Ausfall wird als Fehler protokolliert');
+
+// --- Lauf 6: ausverkauft ----------------------------------------------------
+echo "\nLauf 6 -- ausverkauft\n" . str_repeat('-', 54) . "\n";
+scenario('soldout');
+$r6 = runOnce($config, $varDir);
+ok(($r6['screenings'][0]->status ?? null) === Status::SoldOut, 'Zustand ist SOLD_OUT');
 
 // --- Taktung ----------------------------------------------------------------
 echo "\nTaktung\n" . str_repeat('-', 54) . "\n";
@@ -142,7 +176,6 @@ $next = strtotime((string)$state['meta']['next_check_at']);
 ok($next > time() + 5 * 3600, 'nach SOLD_OUT wird deutlich seltener geprueft',
     'naechste Pruefung: ' . $state['meta']['next_check_at']);
 
-// Und der Scheduler muss einen zu fruehen Tick abweisen.
 $store = new Store($varDir);
 $store->acquireLock();
 $skipped = (new Runner($config, $store))->run();
@@ -150,7 +183,7 @@ $store->releaseLock();
 ok(!$skipped['ran'], 'zu frueher Tick wird uebersprungen', $skipped['reason']);
 
 // --- Aufraeumen -------------------------------------------------------------
-file_put_contents($docRoot . '/current.txt', "dated\n");
+scenario('embargo');
 array_map('unlink', glob("$varDir/snapshots/*") ?: []);
 @rmdir("$varDir/snapshots");
 array_map('unlink', glob("$varDir/*") ?: []);

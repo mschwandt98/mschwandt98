@@ -20,30 +20,32 @@ final class Watchdog
     }
 
     /**
-     * Canary: Findet der Parser im gesamten Kinoprogramm null Filmlinks, ist
-     * das ein Parserfehler und kein leeres Ergebnis. Diese eine Regel faengt
-     * die Mehrzahl aller Layout-Wechsel ab.
+     * Canary: Meldet die Quelle fuer das gesamte Kino null Filme, ist das ein
+     * Auswertungsfehler und kein leeres Ergebnis -- ein CinemaxX-Multiplex hat
+     * immer Programm. Diese eine Regel faengt die Mehrzahl aller Aenderungen
+     * an API oder Seitenstruktur ab.
      *
-     * -1 bedeutet "Seite unveraendert (304)" -- daraus laesst sich nichts
-     * ableiten, also auch kein Alarm.
+     * Ein negativer Wert bedeutet "unveraendert (304)" -- daraus laesst sich
+     * nichts ableiten, also auch kein Alarm.
      */
-    public function checkCanary(int $programLinkCount, Store $store): ?Event
+    public function checkCanary(int $filmCount, Store $store): ?Event
     {
-        if ($programLinkCount !== 0) {
-            if ($programLinkCount > 0) {
-                $store->setMeta('last_program_link_count', $programLinkCount);
+        if ($filmCount !== 0) {
+            if ($filmCount > 0) {
+                $store->setMeta('last_film_count', $filmCount);
             }
             return null;
         }
-        $previously = (int)$store->meta('last_program_link_count', 0);
+        $previously = (int)$store->meta('last_film_count', 0);
         if ($previously === 0) {
             return null; // noch nie etwas gefunden -> erster Lauf, kein Alarm
         }
         return new Event(
             Event::WARNING,
-            'Parser findet im Magdeburger Programm keinen einzigen Filmlink mehr '
-            . "(zuletzt waren es $previously). Das deutet auf eine Aenderung der Seitenstruktur hin.",
-            details: ['previous_link_count' => $previously],
+            'Die Quelle meldet fuer das gesamte Kino keinen einzigen Film mehr '
+            . "(zuletzt waren es $previously). Das deutet auf eine Aenderung der API "
+            . 'oder der Seitenstruktur hin -- bitte nachsehen.',
+            details: ['previous_film_count' => $previously],
         );
     }
 

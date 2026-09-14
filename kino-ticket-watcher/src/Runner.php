@@ -12,6 +12,8 @@ use Kino\Model\Screening;
 use Kino\Model\Status;
 use Kino\Notify\Mailer;
 use Kino\Notify\Templates;
+use Kino\Parse\NextData;
+use Kino\Source\CinemaxxApi;
 use Kino\Source\Discovery;
 use Kino\Source\FilmPage;
 use Kino\State\Store;
@@ -19,6 +21,11 @@ use Kino\State\Store;
 /**
  * Orchestriert einen einzelnen Prueflauf. Beide Entrypoints (CLI-Cron und
  * HTTP-Tick) landen hier -- die Prueflogik existiert genau einmal.
+ *
+ * Quellenreihenfolge:
+ *   1. Showings-API des Kinos -- verbindlich, ein Request, keine Interpretation
+ *   2. HTML-Rueckfallebene ueber Programmseite und Sitemap, falls die API
+ *      ausfaellt oder nichts Passendes meldet
  */
 final class Runner
 {
@@ -50,72 +57,70 @@ final class Runner
             ];
         }
 
-        $http = new Client(
-            (string)$this->config->get('http.user_agent'),
-            (int)$this->config->get('http.timeout'),
-            (int)$this->config->get('http.retries'),
-            (int)$this->config->get('http.min_interval_per_host'),
-            (bool)$this->config->get('http.respect_robots'),
-        );
-        $matcher = new TitleMatcher(
-            (array)$this->config->get('watch_patterns'),
-            (string)$this->config->get('date_window.from'),
-            (string)$this->config->get('date_window.to'),
-        );
-        $discovery = new Discovery(
-            $http,
-            $matcher,
-            (string)$this->config->get('cinema.base_url'),
-            (string)$this->config->get('cinema.program_path'),
-            (string)$this->config->get('cinema.city'),
-        );
-        $filmPage = new FilmPage($http, (array)$this->config->get('booking_link_patterns'));
-        $keep     = (int)$this->config->get('snapshots_to_keep');
+        $http    = $this->httpClient();
+        $matcher = $this->matcher();
+        $keep    = (int)$this->config->get('snapshots_to_keep');
+        $errors  = [];
 
-        $found = $discovery->candidateUrls((array)$this->config->get('known_urls'), $this->store, $keep);
-        $errors = $found['errors'];
-        $this->log(sprintf('%d Kandidaten-URL(s), %d Filmlinks im Programm',
-            count($found['urls']), $found['program_link_count']));
+        $cinemaId = $this->cinemaId($http, $errors);
+        if ($cinemaId === null) {
+            $errors[] = 'Kino-Kennung unbekannt -- weder konfiguriert noch aus der Programmseite lesbar.';
+        }
 
-        $screenings = [];
-        $diffEvents = [];
-        foreach ($found['urls'] as $url) {
-            $previousDigest = $this->store->httpCache($url)['digest'] ?? null;
-            $result = $filmPage->fetch($url, $this->store, $keep);
-            if ($result->error !== null) {
-                $errors[] = $url . ': ' . $result->error;
-                continue;
-            }
-            foreach ($result->screenings as $screening) {
-                if (!$matcher->matches($screening->title, $screening->url)) {
-                    continue;
-                }
-                if (!$matcher->inDateWindow($screening->startsAt)) {
-                    $this->log('ausserhalb des Zeitfensters: ' . $screening->title . ' ' . $screening->when());
-                    continue;
-                }
-                $screenings[] = $screening;
-            }
-            $diff = $watchdog->checkContentDiff($url, $previousDigest, $result->digest);
-            if ($diff !== null) {
-                $diffEvents[] = $diff;
+        $screenings   = [];
+        $filmCount    = 0;
+        $haveFreshData = false;
+        $usedFallback = false;
+
+        // --- Quelle 1: Showings-API ------------------------------------------
+        if ($cinemaId !== null) {
+            $api = new CinemaxxApi($http, (string)$this->config->get('cinema.base_url'));
+            $result = $api->fetch($cinemaId, $this->store, $keep);
+
+            if ($result['notModified']) {
+                // 304: Es gibt keine neuen Daten. Jetzt zu vergleichen hiesse,
+                // alle bekannten Vorstellungen als verschwunden zu melden.
+                $this->log('API meldet unveraendert (304)');
+            } elseif ($result['error'] !== null) {
+                $errors[] = 'API: ' . $result['error'];
+            } else {
+                $haveFreshData = true;
+                $filmCount = $result['films'];
+                $screenings = $this->filter($result['screenings'], $matcher);
+                $this->log(sprintf('API: %d Film(e) im Kino, %d Treffer', $filmCount, count($screenings)));
             }
         }
 
-        $transitions = new Transitions((array)$this->config->get('notify.bookable_repeat_after'));
-        $lastNotified = (array)$this->store->meta('notified_at', []);
-        $events = $transitions->detect($this->store->screenings(), $screenings, $lastNotified, $now);
-
-        // Der Roh-Diff ist nur dann interessant, wenn der Klassifikator nichts
-        // gesehen hat. Sonst wuerde jede echte Aenderung doppelt gemeldet.
-        if ($events === []) {
-            $events = $diffEvents;
+        // --- Quelle 2: HTML-Rueckfallebene -----------------------------------
+        // Nur wenn die API ausgefallen ist oder nichts Passendes gemeldet hat --
+        // und dann gedrosselt, damit der Minutentakt sie nicht vervielfacht.
+        $apiFailed = $cinemaId === null || $errors !== [];
+        if ($apiFailed || ($haveFreshData && $screenings === [] && $this->crosscheckDue($now))) {
+            $usedFallback = true;
+            $this->store->setMeta('last_html_crosscheck_at', date('c', $now));
+            [$fallback, $fallbackErrors, $links] = $this->htmlFallback($http, $matcher, $keep);
+            $errors = array_merge($errors, $fallbackErrors);
+            if ($fallback !== [] || $links > 0) {
+                $haveFreshData = true;
+                $filmCount = max($filmCount, $links);
+                $screenings = $this->dedupe(array_merge($screenings, $fallback));
+                $this->log(sprintf('HTML-Rueckfallebene: %d Filmlink(s), %d Treffer', $links, count($fallback)));
+            }
         }
 
-        $canary = $watchdog->checkCanary($found['program_link_count'], $this->store);
-        if ($canary !== null) {
-            $events[] = $canary;
+        // --- Vergleich und Ereignisse ----------------------------------------
+        $events = [];
+        if ($haveFreshData) {
+            $transitions  = new Transitions((array)$this->config->get('notify.bookable_repeat_after'));
+            $lastNotified = (array)$this->store->meta('notified_at', []);
+            $events = $transitions->detect($this->store->screenings(), $screenings, $lastNotified, $now);
+
+            $canary = $watchdog->checkCanary($filmCount, $this->store);
+            if ($canary !== null) {
+                $events[] = $canary;
+            }
         }
+
         $silence = $watchdog->checkTickSilence($this->store, $scheduler->isHotSeason($now), $now);
         if ($silence !== null) {
             $events[] = $silence;
@@ -124,23 +129,23 @@ final class Runner
             $events[] = new Event(
                 Event::WARNING,
                 sprintf(
-                    'Lebenszeichen: Watcher laeuft. Aktueller Zustand: %s. %d Vorstellung(en) beobachtet.',
+                    'Lebenszeichen: Watcher laeuft. Zustand: %s, %d Vorstellung(en) beobachtet, Quelle: %s.',
                     $this->highestStatus($screenings)->label(),
-                    count($screenings)
+                    count($screenings),
+                    $usedFallback ? 'HTML-Rueckfallebene' : 'API'
                 ),
             );
             $this->store->setMeta('last_heartbeat_at', date('c', $now));
         }
-
         if ($forceNotify && $events === []) {
             $events[] = new Event(
                 Event::WARNING,
                 'Testmail (--force-notify). Wenn du diese Mail liest, funktioniert die gesamte Kette '
-                . 'von HTTP ueber Parser bis SMTP.',
+                . 'von HTTP ueber die API bis zum SMTP-Versand.',
             );
         }
 
-        $this->persist($screenings, $events, $errors, $scheduler, $now);
+        $this->persist($screenings, $events, $errors, $scheduler, $now, $haveFreshData);
 
         if ($events !== []) {
             $mailError = $this->notify($events);
@@ -153,11 +158,161 @@ final class Runner
 
         return [
             'ran' => true,
-            'reason' => 'geprueft',
+            'reason' => $haveFreshData ? 'geprueft' : 'keine neuen Daten',
             'events' => $events,
             'screenings' => $screenings,
             'errors' => $errors,
         ];
+    }
+
+    private function httpClient(): Client
+    {
+        return new Client(
+            (string)$this->config->get('http.user_agent'),
+            (int)$this->config->get('http.timeout'),
+            (int)$this->config->get('http.retries'),
+            (int)$this->config->get('http.min_interval_per_host'),
+            (bool)$this->config->get('http.respect_robots'),
+        );
+    }
+
+    private function matcher(): TitleMatcher
+    {
+        return new TitleMatcher(
+            (array)$this->config->get('watch_patterns'),
+            (string)$this->config->get('date_window.from'),
+            (string)$this->config->get('date_window.to'),
+        );
+    }
+
+    /**
+     * Kino-Kennung fuer die API. Normalerweise aus der Konfiguration (1391 fuer
+     * Magdeburg); fehlt sie, wird sie einmalig aus dem __NEXT_DATA__ der
+     * Programmseite gelesen und gemerkt.
+     *
+     * @param list<string> $errors
+     */
+    private function cinemaId(Client $http, array &$errors): ?string
+    {
+        $configured = trim((string)$this->config->get('cinema.id', ''));
+        if ($configured !== '') {
+            return $configured;
+        }
+        $cached = $this->store->meta('cinema_id');
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+
+        $url = rtrim((string)$this->config->get('cinema.base_url'), '/')
+             . (string)$this->config->get('cinema.program_path');
+        $res = $http->get($url);
+        if (!$res->ok()) {
+            $errors[] = 'Kino-Kennung: Programmseite nicht erreichbar (' . ($res->error ?? '?') . ')';
+            return null;
+        }
+        $id = NextData::idsFromHtml($res->body)['cinemaId'];
+        if ($id !== null) {
+            $this->store->setMeta('cinema_id', $id);
+        }
+        return $id;
+    }
+
+    /**
+     * Rueckfallebene: Programmseite und Sitemap nach Filmseiten durchsuchen,
+     * diese einzeln auswerten. Deutlich fragiler als die API und deshalb nur
+     * Reserve.
+     *
+     * @return array{0:list<Screening>,1:list<string>,2:int}
+     */
+    private function htmlFallback(Client $http, TitleMatcher $matcher, int $keep): array
+    {
+        $discovery = new Discovery(
+            $http,
+            $matcher,
+            (string)$this->config->get('cinema.base_url'),
+            (string)$this->config->get('cinema.program_path'),
+            (string)$this->config->get('cinema.city'),
+        );
+        $filmPage = new FilmPage($http, (array)$this->config->get('booking_link_patterns'));
+
+        $found  = $discovery->candidateUrls((array)$this->config->get('known_urls'), $this->store, $keep);
+        $errors = $found['errors'];
+        $out    = [];
+
+        foreach ($found['urls'] as $url) {
+            $result = $filmPage->fetch($url, $this->store, $keep);
+            if ($result->error !== null) {
+                $errors[] = $url . ': ' . $result->error;
+                continue;
+            }
+            foreach ($this->filter($result->screenings, $matcher) as $screening) {
+                $out[] = $screening;
+            }
+        }
+        return [$out, $errors, max(0, $found['program_link_count'])];
+    }
+
+    /**
+     * @param list<Screening> $screenings
+     * @return list<Screening>
+     */
+    private function filter(array $screenings, TitleMatcher $matcher): array
+    {
+        $out = [];
+        foreach ($screenings as $screening) {
+            if (!$matcher->matches($screening->title, $screening->url)) {
+                continue;
+            }
+            if (!$matcher->inDateWindow($screening->startsAt)) {
+                $this->log('ausserhalb des Zeitfensters: ' . $screening->title . ' ' . $screening->when());
+                continue;
+            }
+            $out[] = $screening;
+        }
+        return $this->dedupe($out);
+    }
+
+    /**
+     * Mehrere Vorstellungen am selben Tag teilen sich einen Fingerprint. Es
+     * gewinnt die guenstigste: Ist eine buchbar, ist der Tag buchbar.
+     *
+     * @param list<Screening> $screenings
+     * @return list<Screening>
+     */
+    private function dedupe(array $screenings): array
+    {
+        $best = [];
+        foreach ($screenings as $screening) {
+            $fp = $screening->fingerprint();
+            $current = $best[$fp] ?? null;
+            if ($current === null || $this->priority($screening->status) > $this->priority($current->status)) {
+                $best[$fp] = $screening;
+            }
+        }
+        return array_values($best);
+    }
+
+    private function priority(Status $status): int
+    {
+        // Buchbar schlaegt alles -- auch "ausverkauft", das nur fuer einzelne
+        // Vorstellungen gelten kann, waehrend eine andere noch offen ist.
+        return match ($status) {
+            Status::Bookable   => 5,
+            Status::Dated      => 4,
+            Status::SoldOut    => 3,
+            Status::PageExists => 2,
+            Status::Absent     => 1,
+        };
+    }
+
+    private function crosscheckDue(int $now): bool
+    {
+        $last = $this->store->meta('last_html_crosscheck_at');
+        if (!is_string($last)) {
+            return true;
+        }
+        $ts = strtotime($last);
+        return $ts === false || ($now - $ts) >= (int)$this->config->get('schedule.html_crosscheck_seconds', 1800);
     }
 
     /** @param list<Screening> $screenings */
@@ -165,12 +320,7 @@ final class Runner
     {
         $best = Status::Absent;
         foreach ($screenings as $s) {
-            // SoldOut hat den hoechsten rank, ist aber fuer die Taktung nicht
-            // "besser" als Bookable -- Bookable gewinnt daher ausdruecklich.
-            if ($s->status === Status::Bookable) {
-                return Status::Bookable;
-            }
-            if ($s->status->rank() > $best->rank()) {
+            if ($this->priority($s->status) > $this->priority($best)) {
                 $best = $s->status;
             }
         }
@@ -178,21 +328,37 @@ final class Runner
     }
 
     /** @param list<Screening> $screenings @param list<Event> $events @param list<string> $errors */
-    private function persist(array $screenings, array $events, array $errors, Scheduler $scheduler, int $now): void
-    {
-        $rows = [];
+    private function persist(
+        array $screenings,
+        array $events,
+        array $errors,
+        Scheduler $scheduler,
+        int $now,
+        bool $haveFreshData,
+    ): void {
         $presale = null;
-        foreach ($screenings as $s) {
-            $rows[$s->fingerprint()] = $s->toArray() + ['last_seen' => date('c', $now)];
-            $presale ??= $s->presaleStartsAt;
+        if ($haveFreshData) {
+            $rows = [];
+            foreach ($screenings as $s) {
+                $rows[$s->fingerprint()] = $s->toArray() + ['last_seen' => date('c', $now)];
+                $presale ??= $s->presaleStartsAt;
+            }
+            $this->store->setScreenings($rows);
+        } else {
+            // Ohne frische Daten bleibt der gespeicherte Zustand unangetastet.
+            foreach ($this->store->screenings() as $row) {
+                $presale ??= $row['presale_starts_at'] ?? null;
+            }
         }
 
-        $consecutive = $errors !== [] && $screenings === []
+        $consecutive = $errors !== [] && !$haveFreshData
             ? (int)$this->store->meta('consecutive_errors', 0) + 1
             : 0;
 
-        $status = $this->highestStatus($screenings);
-        $this->store->setScreenings($rows);
+        $status = $haveFreshData
+            ? $this->highestStatus($screenings)
+            : (Status::tryFrom((string)$this->store->meta('last_status', '')) ?? Status::Absent);
+
         $this->store->setMeta('consecutive_errors', $consecutive);
         $this->store->setMeta('last_run_at', date('c', $now));
         $this->store->setMeta('last_status', $status->value);

@@ -3,168 +3,154 @@
 declare(strict_types=1);
 
 /**
- * Einmalige Analyse der CinemaxX-Seite -- auf dem Zielsystem auszufuehren.
+ * Prueft die CinemaxX-Quellen auf dem Zielsystem und berichtet, was die API
+ * tatsaechlich liefert.
  *
  *   php8.5 bin/discover.php > discovery-report.txt
  *
- * Das Skript raet nichts. Es berichtet, was tatsaechlich auf der Seite steht:
- * welche strukturierten Daten vorhanden sind, wie Buchungslinks aussehen, was
- * robots.txt erlaubt. Aus diesem Bericht werden die Parser praezisiert.
+ * Anders als beim ersten Entwurf muss hier nichts mehr geraten werden: Die
+ * Showings-API ist bekannt und dokumentiert (siehe PLAN.md). Dieses Skript
+ * dient noch der Kontrolle -- ob die API vom Server aus erreichbar ist, ob
+ * die Kino-Kennung stimmt und was robots.txt sagt.
  *
- * Alle Rohantworten landen in var/discovery/ -- diese Dateien sind zugleich
- * die Testfixtures. Besonders wertvoll ist ein Abzug, solange der Vorverkauf
- * noch laeuft: Der Zustand "buchbar" ist spaeter nicht mehr beschaffbar.
+ * Alle Rohantworten landen in var/discovery/ und taugen als Testfixtures.
  */
 
 require __DIR__ . '/../src/autoload.php';
 
 use Kino\Config;
 use Kino\Http\Client;
+use Kino\Match\TitleMatcher;
 use Kino\Parse\Dom;
-use Kino\Parse\JsonLd;
-use Kino\Parse\Normalize;
+use Kino\Parse\NextData;
+use Kino\Source\CinemaxxApi;
 
-// Discovery soll auch vor dem Ausfuellen der config.php laufen koennen --
-// fuer den Bericht braucht es weder SMTP-Daten noch ein Secret.
 $configFile = dirname(__DIR__) . '/config/config.php';
 $config = is_file($configFile) ? Config::load($configFile) : Config::fromArray([]);
 date_default_timezone_set((string)$config->get('timezone'));
 
-$base    = rtrim((string)$config->get('cinema.base_url'), '/');
-$city    = trim((string)$config->get('cinema.city'), '/');
-$outDir  = $config->varDir() . '/discovery';
+$base   = rtrim((string)$config->get('cinema.base_url'), '/');
+$city   = trim((string)$config->get('cinema.city'), '/');
+$outDir = $config->varDir() . '/discovery';
 @mkdir($outDir, 0775, true);
 
-// robots.txt wird hier bewusst NICHT beachtet: Wir wollen ja gerade
-// herausfinden, was sie sagt. Der Bericht weist darauf hin.
+// robots.txt wird hier bewusst nicht beachtet -- wir wollen ja gerade sehen,
+// was darin steht. Der eigentliche Watcher haelt sich daran.
 $http = new Client((string)$config->get('http.user_agent'), 20, 1, 2, respectRobots: false);
-
-$targets = [
-    'robots'  => $base . '/robots.txt',
-    'sitemap' => $base . '/sitemap.xml',
-    'program' => $base . (string)$config->get('cinema.program_path'),
-];
-foreach ((array)$config->get('known_urls') as $i => $url) {
-    $targets['film' . ($i + 1)] = $url;
-}
+$api  = new CinemaxxApi($http, $base);
+$matcher = new TitleMatcher(
+    (array)$config->get('watch_patterns'),
+    (string)$config->get('date_window.from'),
+    (string)$config->get('date_window.to'),
+);
 
 line('CinemaxX-Discovery');
 line('Zeitpunkt: ' . date('c'));
 line('Basis:     ' . $base);
 line(str_repeat('=', 72));
 
-foreach ($targets as $name => $url) {
+// --- 1. robots.txt ----------------------------------------------------------
+line('');
+line('### robots.txt');
+$res = $http->get($base . '/robots.txt');
+if ($res->ok()) {
+    save($outDir, 'robots', $res->body);
+    line(trim($res->body));
+} else {
+    line('FEHLER: ' . ($res->error ?? '?'));
+}
+
+// --- 2. Kino-Kennung --------------------------------------------------------
+line('');
+line('### Kino-Kennung');
+$configured = (string)$config->get('cinema.id', '');
+line('konfiguriert: ' . ($configured !== '' ? $configured : '(leer)'));
+
+$programUrl = $base . (string)$config->get('cinema.program_path');
+$res = $http->get($programUrl);
+$cinemaId = $configured !== '' ? $configured : null;
+if ($res->ok()) {
+    save($outDir, 'program', $res->body);
+    $ids = NextData::idsFromHtml($res->body);
+    line('aus der Programmseite: ' . ($ids['cinemaId'] ?? '(nicht gefunden)'));
+    line('__NEXT_DATA__ vorhanden: ' . (NextData::extract($res->body) !== null ? 'ja' : 'NEIN'));
+    $cinemaId ??= $ids['cinemaId'];
+    if ($configured !== '' && $ids['cinemaId'] !== null && $ids['cinemaId'] !== $configured) {
+        line('!! ABWEICHUNG: konfiguriert ' . $configured . ', Seite sagt ' . $ids['cinemaId']);
+    }
+    $links = array_values(array_filter(
+        Dom::links($res->body, $programUrl),
+        static fn ($l) => str_contains($l, "/$city/film/")
+    ));
+    line('Filmlinks im HTML (Rueckfallebene): ' . count($links));
+} else {
+    line('FEHLER beim Abruf der Programmseite: ' . ($res->error ?? '?'));
+}
+
+if ($cinemaId === null) {
     line('');
-    line("### $name");
-    line('URL: ' . $url);
+    line('Ohne Kino-Kennung kann die API nicht abgefragt werden. Abbruch.');
+    exit(1);
+}
 
-    $res = $http->get($url);
-    if (!$res->ok()) {
-        line('FEHLER: ' . ($res->error ?? 'unbekannt'));
-        continue;
-    }
-    $file = $outDir . '/' . $name . '.txt';
-    file_put_contents($file, $res->body);
-    line(sprintf('HTTP %d, %d Bytes -> %s', $res->status, strlen($res->body), $file));
-    line('Content-Type: ' . ($res->headers['content-type'] ?? '?'));
-    line('ETag: ' . ($res->etag ?? '-') . ' | Last-Modified: ' . ($res->lastModified ?? '-'));
+// --- 3. Die eigentliche Quelle: Showings-API --------------------------------
+line('');
+line('### Showings-API');
+$url = $api->sessionsUrl($cinemaId);
+line('URL: ' . $url);
 
-    if ($name === 'robots') {
-        line('--- Inhalt ---');
-        line(trim($res->body));
-        continue;
-    }
-    if ($name === 'sitemap') {
-        preg_match_all('#<loc>\s*([^<\s]+)\s*</loc>#i', $res->body, $m);
-        $all  = $m[1] ?? [];
-        $film = array_values(array_filter($all, static fn ($u) => str_contains($u, "/$city/film/")));
-        line(sprintf('Eintraege gesamt: %d, davon Filmseiten %s: %d', count($all), $city, count($film)));
-        line('Index-Sitemap: ' . (stripos($res->body, '<sitemapindex') !== false ? 'ja' : 'nein'));
-        foreach (array_slice($all, 0, 8) as $u) {
-            line('  ' . $u);
-        }
-        continue;
-    }
+$res = $http->get($url);
+if (!$res->ok()) {
+    line('FEHLER: ' . ($res->error ?? '?'));
+    line('Damit faellt der Watcher auf die HTML-Ebene zurueck -- das funktioniert,');
+    line('ist aber deutlich fragiler. Bitte melden.');
+    exit(1);
+}
+save($outDir, 'api-cinema-' . $cinemaId, $res->body);
+line(sprintf('HTTP %d, %d Bytes', $res->status, strlen($res->body)));
+line('Cache-Control: ' . ($res->headers['cache-control'] ?? '-'));
+line('ETag: ' . ($res->etag ?? '-') . ' | Last-Modified: ' . ($res->lastModified ?? '-'));
 
-    analyseHtml($res->body, $url, $city);
+$data = json_decode($res->body, true);
+$films = is_array($data) ? ($data['result'] ?? []) : [];
+line('Filme im Kino: ' . (is_array($films) ? count($films) : 0));
+
+$screenings = $api->parse($res->body);
+line('Vorstellungen gesamt: ' . count($screenings));
+line('');
+
+$hits = 0;
+foreach ($screenings as $s) {
+    $isHit = $matcher->matches($s->title, $s->url);
+    if ($isHit) {
+        $hits++;
+    }
+    line(sprintf(
+        '%s [%-11s] %-52s %s%s',
+        $isHit ? '>>' : '  ',
+        $s->status->value,
+        mb_substr($s->title, 0, 52),
+        $s->when(),
+        $s->presaleStartsAt !== null ? '  VVK ab ' . $s->presaleStartsAt : ''
+    ));
+}
+
+line('');
+line('Treffer auf die konfigurierten Suchmuster: ' . $hits);
+if ($hits === 0) {
+    line('');
+    line('Kein Treffer. Das ist ausserhalb der Marathon-Saison normal. Falls der');
+    line('Marathon gerade im Programm steht, bitte die watch_patterns pruefen --');
+    line('die Titel oben zeigen, wie CinemaxX den Film tatsaechlich benennt.');
 }
 
 line('');
 line(str_repeat('=', 72));
-line('Bitte diesen Bericht zurueckschicken. Die Dateien in ' . $outDir);
-line('bitte ebenfalls aufheben -- sie werden zu den Testfixtures.');
+line('Rohantworten in: ' . $outDir);
 
-function analyseHtml(string $html, string $url, string $city): void
+function save(string $dir, string $name, string $body): void
 {
-    $text = Normalize::visibleText($html);
-
-    line('<title>: ' . (Dom::title($html) ?? '-'));
-    line('<h1>:    ' . (Dom::heading($html) ?? '-'));
-    line('Sichtbarer Text: ' . strlen($text) . ' Zeichen');
-
-    // 1. JSON-LD -- die stabilste Quelle, wenn vorhanden
-    $nodes = JsonLd::extract($html);
-    line('');
-    line('JSON-LD-Knoten: ' . count($nodes));
-    foreach ($nodes as $node) {
-        $types = implode('/', JsonLd::types($node));
-        $line  = '  @type=' . $types;
-        if (JsonLd::isEvent($node)) {
-            $line .= ' | name=' . (JsonLd::string($node, 'name') ?? '-')
-                   . ' | startDate=' . (JsonLd::string($node, 'startDate') ?? '-')
-                   . ' | availability=' . (JsonLd::availability($node) ?? '-');
-        }
-        line($line);
-    }
-    if ($nodes === []) {
-        line('  (keine -- dann entscheidet die HTML-Heuristik)');
-    }
-
-    // 2. Eingebettete JSON-Blobs (Next.js/Nuxt und Verwandte)
-    line('');
-    $blobs = [];
-    foreach (['__NEXT_DATA__', '__NUXT__', '__INITIAL_STATE__', 'window.__DATA__'] as $marker) {
-        if (str_contains($html, $marker)) {
-            $blobs[] = $marker;
-        }
-    }
-    line('Eingebettete JSON-Blobs: ' . ($blobs === [] ? 'keine' : implode(', ', $blobs)));
-
-    // 3. URLs, die nach einer API aussehen
-    preg_match_all('#["\'](/[^"\'\s]*(?:/api/|\.json|graphql)[^"\'\s]*)["\']#i', $html, $m);
-    $api = array_slice(array_unique($m[1] ?? []), 0, 15);
-    line('API-verdaechtige Pfade: ' . count($api));
-    foreach ($api as $path) {
-        line('  ' . $path);
-    }
-
-    // 4. Links -- die Grundlage fuer die Buchungserkennung
-    $links = Dom::links($html, $url);
-    $filmLinks = array_values(array_filter($links, static fn ($l) => str_contains($l, "/$city/film/")));
-    line('');
-    line(sprintf('Links gesamt: %d, Filmseiten (%s): %d', count($links), $city, count($filmLinks)));
-
-    $interesting = array_values(array_filter($links, static fn ($l) =>
-        preg_match('#(vorstellung|booking|ticket|buchen|kaufen|checkout|seat|platz|show)#i', $l) === 1));
-    line('Buchungsverdaechtige Links: ' . count($interesting));
-    foreach (array_slice($interesting, 0, 15) as $l) {
-        line('  ' . $l);
-    }
-
-    // 5. Textmarker -- die letzte Rueckfallebene
-    line('');
-    line('Marker "ausverkauft":        ' . (Dom::looksSoldOut($text) ? 'JA' : 'nein'));
-    line('Marker "noch nicht buchbar": ' . (Dom::looksPending($text) ? 'JA' : 'nein'));
-    line('Vorverkaufsdatum erkannt:    ' . (Dom::presaleStart($text) ?? '-'));
-    $dates = Dom::dates($text);
-    line('Gefundene Datumsangaben (' . count($dates) . '): ' . implode(', ', array_slice($dates, 0, 12)));
-
-    foreach (['vorverkauf', 'ausverkauft', 'tickets', 'buchen', 'marathon', 'herr der ringe'] as $needle) {
-        $pos = mb_stripos($text, $needle);
-        if ($pos !== false) {
-            line(sprintf('Kontext "%s": ...%s...', $needle, mb_substr($text, max(0, $pos - 60), 160)));
-        }
-    }
+    file_put_contents($dir . '/' . $name . '.txt', $body);
 }
 
 function line(string $s): void

@@ -30,6 +30,8 @@ use Kino\Parse\JsonLd;
 use Kino\Parse\Normalize;
 use Kino\Scheduler;
 use Kino\Source\Discovery;
+use Kino\Source\CinemaxxApi;
+use Kino\Parse\NextData;
 use Kino\Source\FilmPage;
 use Kino\State\Store;
 
@@ -173,6 +175,66 @@ $other = $filmPage->parse(file_get_contents("$fixtures/other-film.html"),
 T::same(Status::Bookable, $other[0]->status, 'auch der Hobbit wird korrekt als buchbar erkannt');
 T::ok(!$matcher->matches($other[0]->title, $other[0]->url),
     '... faellt aber durch den Titelfilter und loest keinen Alarm aus');
+
+// ------------------------------------------------------- CinemaxX-API (echt)
+
+T::group('CinemaxX Showings-API');
+$api = new CinemaxxApi(new Client('test', 1, 0, 0, false), 'https://www.cinemaxx.de');
+
+T::same(
+    'https://www.cinemaxx.de/api/microservice/showings/cinemas/1391/films'
+    . '?minEmbargoLevel=1&includesSession=true&includeSessionAttributes=true',
+    $api->sessionsUrl('1391'),
+    'URL fuer das ganze Kino'
+);
+T::ok(str_contains($api->sessionsUrl('1391', 'HO00001617'), 'filmId=HO00001617'),
+    'URL mit Filmfilter');
+
+// Die folgenden Fixtures stammen aus einer echten HAR-Aufzeichnung der Seite.
+$bookable = $api->parse(file_get_contents("$fixtures/api/cinema-1391-bookable.json"));
+T::same(1, count($bookable), 'echte Antwort ergibt eine Vorstellung');
+T::same(Status::Bookable, $bookable[0]->status, 'isBookingAvailable=true -> BOOKABLE');
+T::same('Der Herr der Ringe Triple (Extended Version)', $bookable[0]->title, 'Titel aus filmTitle');
+T::same('2026-11-07T12:00:00+01:00', $bookable[0]->startsAt, 'Startzeit mit Zeitzone');
+T::same('07.11.2026 12:00', $bookable[0]->when(), 'Termin wird in Ortszeit dargestellt');
+T::same('https://www.cinemaxx.de/buchtickets/zusammenfassung/1391/HO00001617/44604',
+    $bookable[0]->bookingUrl, 'Buchungslink wird absolut gemacht');
+T::ok(str_contains((string)$bookable[0]->note, 'Kino 07'), 'Saal steht im Zusatz');
+T::ok(!str_contains($bookable[0]->title, 'Kino 07'),
+    'Saal steht NICHT im Titel -- er wuerde den Fingerprint destabilisieren');
+
+$embargo = $api->parse(file_get_contents("$fixtures/api/cinema-1391-embargo.json"));
+T::same(Status::Dated, $embargo[0]->status, 'Embargo -> DATED, noch nicht buchbar');
+T::same('2026-10-14T10:00:00', $embargo[0]->presaleStartsAt,
+    'embargoEndDate ist der Vorverkaufsstart');
+T::same($bookable[0]->fingerprint(), $embargo[0]->fingerprint(),
+    'Embargo und buchbar sind dieselbe Vorstellung');
+
+$sold = $api->parse(file_get_contents("$fixtures/api/cinema-1391-soldout.json"));
+T::same(Status::SoldOut, $sold[0]->status, 'isSoldOut=true -> SOLD_OUT');
+
+T::same(0, count($api->parse(file_get_contents("$fixtures/api/cinema-1391-empty.json"))),
+    'leeres Ergebnis ergibt keine Vorstellung');
+T::same(0, count($api->parse('kein json')), 'Schrott-Antwort stuerzt nicht ab');
+T::same(0, count($api->parse('{"result":null}')), 'result=null stuerzt nicht ab');
+
+T::ok($matcher->matches($bookable[0]->title, $bookable[0]->url),
+    'der echte Titel passt auf die konfigurierten Suchmuster');
+T::ok($matcher->inDateWindow($bookable[0]->startsAt),
+    'der echte Termin (7. November) liegt im Zeitfenster');
+
+// --------------------------------------------------------------- __NEXT_DATA__
+
+T::group('__NEXT_DATA__');
+$pageHtml = file_get_contents("$fixtures/film-page-nextdata.html");
+$ids = NextData::idsFromHtml($pageHtml);
+T::same('1391', $ids['cinemaId'], 'Kino-Kennung aus der echten Seite');
+T::same('HO00001617', $ids['filmId'], 'Film-Kennung aus der echten Seite');
+T::same('Der Herr der Ringe Triple (Extended Version)', $ids['filmName'], 'Filmname');
+T::same(null, NextData::idsFromHtml('<html><body>nichts</body></html>')['cinemaId'],
+    'Seite ohne __NEXT_DATA__ ergibt null statt Absturz');
+T::same(null, NextData::idsFromHtml('<script id="__NEXT_DATA__">{kaputt</script>')['filmId'],
+    'kaputtes JSON ergibt null statt Absturz');
 
 // ----------------------------------------------------------------- Discovery
 

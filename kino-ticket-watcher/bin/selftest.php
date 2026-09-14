@@ -87,14 +87,45 @@ $program = $http->get($programUrl);
 check('Programmseite erreichbar', $program->ok(),
     $program->ok() ? strlen($program->body) . ' Bytes' : ($program->error ?? '?'));
 
+$cinemaId = (string)$config->get('cinema.id', '');
 if ($program->ok()) {
-    $city = trim((string)$config->get('cinema.city'), '/');
-    $links = Kino\Parse\Dom::links($program->body, $programUrl);
-    $film  = array_filter($links, static fn ($l) => str_contains($l, "/$city/film/"));
-    check('Filmlinks im Programm gefunden', $film !== [], count($film) . ' Stueck',
-        fatal: false);
-    if ($film === []) {
-        echo "       -> Ohne Filmlinks greift die Canary-Warnung. Bitte bin/discover.php laufen lassen.\n";
+    $found = Kino\Parse\NextData::idsFromHtml($program->body)['cinemaId'];
+    check('Kino-Kennung aus der Seite lesbar', $found !== null, $found ?? 'nicht gefunden', fatal: false);
+    if ($cinemaId !== '' && $found !== null && $found !== $cinemaId) {
+        check('Kino-Kennung stimmt mit der Konfiguration ueberein', false,
+            "konfiguriert $cinemaId, Seite sagt $found");
+    }
+    $cinemaId = $cinemaId !== '' ? $cinemaId : (string)$found;
+}
+
+// Die Showings-API ist die eigentliche Quelle -- sie muss erreichbar sein.
+if ($cinemaId === '') {
+    check('Showings-API abfragbar', false, 'keine Kino-Kennung');
+} else {
+    $api = new Kino\Source\CinemaxxApi($http, $base);
+    $apiRes = $http->get($api->sessionsUrl($cinemaId));
+    check('Showings-API erreichbar', $apiRes->ok(),
+        $apiRes->ok() ? strlen($apiRes->body) . ' Bytes' : ($apiRes->error ?? '?'));
+
+    if ($apiRes->ok()) {
+        $screenings = $api->parse($apiRes->body);
+        check('API liefert Vorstellungen', $screenings !== [],
+            count($screenings) . ' Vorstellung(en) im Kino', fatal: false);
+        if ($screenings === []) {
+            echo "       -> Null Vorstellungen loest im Betrieb die Canary-Warnung aus.\n";
+            echo "          Bitte bin/discover.php laufen lassen und den Bericht pruefen.\n";
+        }
+
+        $matcher = new Kino\Match\TitleMatcher(
+            (array)$config->get('watch_patterns'),
+            (string)$config->get('date_window.from'),
+            (string)$config->get('date_window.to'),
+        );
+        $hits = array_filter($screenings, static fn ($s) => $matcher->matches($s->title, $s->url));
+        echo '       Treffer auf die Suchmuster: ' . count($hits) . "\n";
+        foreach ($hits as $hit) {
+            printf("         [%s] %s -- %s\n", $hit->status->value, $hit->title, $hit->when());
+        }
     }
 }
 

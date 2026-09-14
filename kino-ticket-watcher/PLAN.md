@@ -29,28 +29,47 @@ Daraus folgt alles Weitere:
 
 ## Die vier tragenden Entscheidungen
 
-### 1. Das Programm durchsuchen, nicht eine URL beobachten
+### 1. Die API abfragen, nicht die Seite lesen
 
-Der Slug von 2026 (`der-herr-der-ringe-triple-extended-version`) wird nächstes
-Jahr anders lauten. Ein Watcher, der nur diese URL pollt, ist genau dann blind,
-wenn es darauf ankommt. Deshalb laufen drei Wege parallel: Programmübersicht,
-`sitemap.xml` und die bekannten URLs aus der Konfiguration.
+Eine HAR-Aufzeichnung der Filmseite hat gezeigt, dass cinemaxx.de eine
+öffentliche JSON-API hat:
 
-Die Sitemap ist der beste Frühindikator — ausdrücklich für Crawler gedacht,
-stabil im Format, und eine neue Film-URL steht dort oft, bevor sie prominent
-verlinkt ist.
+```
+GET /api/microservice/showings/cinemas/{cinemaId}/films
+    ?minEmbargoLevel=1&includesSession=true&includeSessionAttributes=true
+```
 
-### 2. Klassifikator **und** Roh-Diff
+Keine Authentifizierung, `Cache-Control: public, max-age=60`, `Last-Modified`
+vorhanden. Ein Request liefert alle Filme des Kinos samt Vorstellungen. Die
+Felder beantworten die Frage direkt, statt sie raten zu lassen:
+`isBookingAvailable`, `isSoldOut`, `embargoEndDate`, `bookingUrl`.
 
-Ein Klassifikator muss die Seitenstruktur kennen. Diese Struktur war bei der
-Entwicklung nicht einsehbar und kann sich im Standby ändern. Ein Klassifikator
-allein kann also stillschweigend falsch liegen.
+Damit entfällt der gesamte Interpretationsaufwand. **JSON-LD gibt es auf der
+Seite übrigens nicht** — die ursprünglich geplante Bevorzugung von
+`schema.org`-Daten ging ins Leere.
 
-Deshalb zwei Ebenen: der Klassifikator für präzise Alarme, und ein Digest über
-den normalisierten sichtbaren Text als Sicherheitsnetz. Ändert sich der Inhalt,
-ohne dass der Klassifikator etwas erkennt, geht trotzdem eine Mail raus. Bei
-einem Ereignis, das einmal im Jahr stattfindet, ist eine Mail zu viel die
-richtige Richtung für den Fehler.
+Die Kennungen stehen im `__NEXT_DATA__` der Seite (Next.js auf Sitecore):
+
+```
+context.cinema.cinemaId.value  -> "1391"        CinemaxX Magdeburg
+context.film.filmId.value      -> "HO00001617"  Der Herr der Ringe Triple
+```
+
+Die GUIDs daneben (`context.cinema.id`) sind Sitecore-intern und für die API
+nutzlos — eine Falle, in die man beim ersten Hinsehen tappt.
+
+Gefiltert wird über den Filmtitel, nicht über eine URL: Der Slug lautet nächstes
+Jahr anders, die API-Abfrage bleibt gleich.
+
+### 2. HTML als Rückfallebene, nicht als Hauptweg
+
+Die API ist nicht dokumentiert und kann sich ändern. Fällt sie aus, sucht der
+Watcher über Programmseite und `sitemap.xml` weiter und wertet Filmseiten mit
+Heuristiken aus. Das ist deutlich fragiler und deshalb ausdrücklich Reserve —
+aber es verhindert, dass ein API-Umbau den Watcher komplett blind macht.
+
+Der Ausfall wird protokolliert und fließt in den Fehler-Backoff ein, damit er
+nicht unbemerkt zum Dauerzustand wird.
 
 ### 3. Zustand als JSON-Datei, nicht SQLite
 
@@ -77,7 +96,7 @@ stumm wird. Keiner der beiden ist ein Single Point of Failure.
 Wie oft tatsächlich bei CinemaxX angefragt wird, entscheidet allein der
 Scheduler — die meisten Minutenticks enden als No-op.
 
-## Zwei Fehler, die die Tests gefunden haben
+## Drei Fehler, die die Tests gefunden haben
 
 Beide sind festgehalten, weil sie im Ernstfall teuer gewesen wären und als
 Regressionstests weiterleben:
@@ -89,24 +108,40 @@ falschen Tag in Betreff und Fingerprint.
 
 **Der Fingerprint war nicht stabil über Quellenwechsel hinweg.** Dieselbe
 Vorstellung erreicht uns je nach Quelle als `2026-12-13` (Seitentext) oder als
-`2026-12-13T11:00:00+01:00` (JSON-LD). Ging die Uhrzeit in den Fingerprint ein,
+`2026-12-13T11:00:00+01:00` (API). Ging die Uhrzeit in den Fingerprint ein,
 galt sie nach einem Quellenwechsel als neue Vorstellung — und genau der Übergang
 „→ buchbar" wäre verloren gegangen. Der Fingerprint nutzt deshalb nur den
 Kalendertag.
 
-## Offen: Schärfung an der echten Seite
+Aus demselben Grund steht der Saalname (`Kino 07`) **nicht** im Titel, obwohl
+die API ihn liefert: Ein umgelegter Saal hätte dieselbe Vorstellung als neue
+erscheinen lassen. Er steht in einem rein informativen Zusatzfeld.
 
-Die Parser-Heuristiken sind noch nicht an `cinemaxx.de` kalibriert — die
-Entwicklungsumgebung kam nicht an die Seite heran, und geraten wurde bewusst
-nichts. JSON-LD wird bevorzugt ausgewertet; darunter greifen grobe Heuristiken
-auf Merkmale zurück, die praktisch jede deutsche Kinoseite hat.
+**Ein `304 Not Modified` hätte alle Vorstellungen als „verschwunden" gemeldet.**
+Die API schickt `Last-Modified`, der Watcher stellt bedingte Requests. Bei `304`
+kommt kein Body — und der naive Vergleich „was war vorher da, was ist jetzt da"
+hätte daraus geschlossen, die Vorstellung sei aus dem Programm genommen worden,
+samt Warnmail. Ohne frische Daten wird der gespeicherte Zustand jetzt gar nicht
+erst angefasst.
 
-Nächster Schritt: `php8.5 bin/discover.php > discovery-report.txt` auf dem
-Zielsystem ausführen. Der Bericht zeigt, ob es JSON-LD gibt, wie Buchungslinks
-aussehen und was `robots.txt` erlaubt. Danach lassen sich
-`booking_link_patterns` und die Parser präzisieren.
+## Offen: der Embargo-Fall
 
-**Zeitkritisch:** Solange der Vorverkauf noch läuft, einen Abzug der Seite im
-Zustand *buchbar* sichern (`var/discovery/`, HTML speichern, DevTools →
-Netzwerk → „Save all as HAR"). Das ist die wertvollste Testfixture und in
-wenigen Wochen nicht mehr beschaffbar.
+Der Zustand *buchbar* ist an echten Daten geprüft — die API-Fixtures stammen aus
+einer HAR-Aufzeichnung der Seite vom 14.09.2026, als der Vorverkauf für den
+Marathon am **7. November 2026, 12:00 Uhr, Kino 07** bereits lief.
+
+Genau deshalb fehlt der interessantere Fall: Wie die API antwortet, **bevor** der
+Vorverkauf freigeschaltet wird, ist nicht belegt. Die Embargo-Fixture wurde aus
+der echten Antwort abgeleitet, indem `embargoEndDate` gesetzt und
+`isBookingAvailable` auf `false` gestellt wurde. Das entspricht der Semantik der
+Feldnamen und dem Query-Parameter `minEmbargoLevel=1`, ist aber eine begründete
+Annahme und keine Messung.
+
+Falls CinemaxX dort anders antwortet — etwa indem embargierte Filme gar nicht
+erst in der Liste auftauchen —, ist das der Punkt zum Nachschärfen. Dagegen
+helfen drei Dinge: die HTML-Rückfallebene, der Canary bei null Filmen, und die
+Snapshots jeder Rohantwort unter `var/snapshots/`.
+
+Wenn der Marathon 2027 angekündigt wird, lohnt ein Blick in `var/snapshots/`,
+sobald der Zustand `DATED` das erste Mal auftaucht: Dann liegt die echte
+Embargo-Antwort vor und die Annahme lässt sich bestätigen oder korrigieren.

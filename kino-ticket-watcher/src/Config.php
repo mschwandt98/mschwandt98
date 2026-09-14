@@ -63,6 +63,10 @@ final class Config
         return [
             'timezone' => 'Europe/Berlin',
             'cinema'   => [
+                // Numerische Kino-Kennung der Showings-API. 1391 = Magdeburg,
+                // belegt aus dem __NEXT_DATA__ der Programmseite. Leer lassen,
+                // um sie automatisch ermitteln zu lassen.
+                'id'           => '1391',
                 'city'         => 'magdeburg',
                 'name'         => 'CinemaxX Magdeburg',
                 'base_url'     => 'https://www.cinemaxx.de',
@@ -112,6 +116,9 @@ final class Config
                 'sold_out_seconds'     => 6 * 3600,
                 'error_backoff'        => [300, 600, 1200, 2400, 3600],
                 'jitter_seconds'       => 20,
+                // Wie oft die HTML-Rueckfallebene zusaetzlich geprueft wird,
+                // wenn die API nichts Passendes meldet. Bremst den Minutentakt.
+                'html_crosscheck_seconds' => 1800,
             ],
             'notify' => [
                 'bookable_repeat_after' => [6 * 3600, 24 * 3600],
