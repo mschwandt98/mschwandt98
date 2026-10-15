@@ -92,7 +92,11 @@ final class Config
             'smtp' => [
                 'host' => '', 'port' => 587, 'user' => '', 'pass' => '',
                 'from' => '', 'from_name' => 'Kino-Watcher', 'to' => '',
-                'encryption' => 'tls',   // tls = STARTTLS (587), ssl = implizit (465), none
+                // 'auto' leitet die Verschluesselung aus dem Port ab:
+                // 465 -> ssl (TLS sofort), sonst tls (STARTTLS). Die haeufigste
+                // Fehlkonfiguration ist Port 465 mit STARTTLS; dann legt der
+                // Server ohne Erklaerung auf.
+                'encryption' => 'auto',
                 'timeout' => 20,
             ],
             'tick_secret' => '',

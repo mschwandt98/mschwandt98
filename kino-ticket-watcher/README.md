@@ -153,6 +153,12 @@ Prüfen — alle drei müssen stimmen:
 | `…/tick.php?key=falsch` | **404** |
 | `…/tick.php?key=<dein Secret>` | **200**, `ok …` oder `skipped` |
 
+**Kommt stattdessen eine `403`:** Dann setzt der Hoster die Subdomain als Alias
+innerhalb des Haupt-vhosts um, und Apache wendet das `Require all denied` aus
+dem übergeordneten Anwendungsverzeichnis mit an. Dagegen liegt in `public/`
+eine Gegen-Regel (`Require all granted`); fehlt sie oder greift sie nicht, muss
+`AllowOverride` für das Verzeichnis aktiv sein.
+
 Zusätzlich prüfen, dass das Anwendungsverzeichnis **nicht** erreichbar ist:
 `https://kino.deine-domain.de/../config/config.php` darf nichts liefern, und
 falls eine andere Domain auf `htdocs/` zeigt, auch

@@ -77,15 +77,10 @@ $appDir = dirname($varDir);
 $webroot = webrootSegment($appDir);
 if ($webroot !== null) {
     check('Anwendung liegt in einem Webverzeichnis', true,
-        "/$webroot/ -- im Browser nachpruefen", fatal: false);
-    echo "       -> Das ist nur dann ein Problem, wenn eine Domain auf /$webroot/ zeigt.\n";
-    echo "          Falls ja, waere config/config.php mit dem SMTP-Passwort abrufbar und\n";
-    echo "          nur durch die .htaccess geschuetzt. Bitte im Browser pruefen:\n";
-    echo '             https://<domain-die-auf-' . $webroot . '-zeigt>/'
-        . relativeToWebroot($appDir, $webroot) . "/config/config.php\n";
-    echo "          Muss 403 oder 404 liefern, niemals Inhalt.\n";
-    echo "          Zeigt keine Domain auf /$webroot/, ist nichts zu tun -- dann braucht\n";
-    echo "          tick.php aber eine eigene Subdomain (siehe README, Schritt 4).\n";
+        "/$webroot/ -- einmal im Browser nachpruefen", fatal: false);
+    echo "       -> Nur relevant, wenn eine Domain auf /$webroot/ zeigt. Falls ja, muss\n";
+    echo '          https://<domain>/' . relativeToWebroot($appDir, $webroot)
+        . "/config/config.php eine 403 liefern.\n";
 } else {
     check('Anwendung ausserhalb bekannter Webverzeichnisse', true, $appDir, fatal: false);
 }
@@ -163,17 +158,28 @@ if (trim((string)($smtp['host'] ?? '')) === '') {
     check('SMTP konfiguriert', false, 'host fehlt');
 } else {
     $port = (int)($smtp['port'] ?? 587);
+    $configured = strtolower(trim((string)($smtp['encryption'] ?? 'auto')));
+    $enc = Mailer::resolveEncryption($configured, $port);
+
+    // Die haeufigste Fehlkonfiguration: Port 465 mit STARTTLS. Der Server
+    // wartet dann auf einen TLS-Handshake, bekommt "EHLO" und legt auf -- zu
+    // sehen ist nur "Verbindung unerwartet beendet".
+    $mismatch = ($port === 465 && $configured === 'tls')
+             || (in_array($port, [587, 25], true) && $configured === 'ssl');
+    check("Verschluesselung passt zu Port $port", !$mismatch,
+        $mismatch
+            ? "'$configured' bei Port $port -- bitte 'auto' setzen"
+            : ($configured === 'auto' ? "auto -> $enc" : $configured));
+
     $errno = 0; $errstr = '';
-    $sock = @fsockopen(
-        (strtolower((string)($smtp['encryption'] ?? 'tls')) === 'ssl' ? 'ssl://' : '') . $smtp['host'],
-        $port, $errno, $errstr, 10
-    );
-    check("Port $port erreichbar", $sock !== false, $sock === false ? "$errstr ($errno)" : 'offen');
+    $sock = @fsockopen(($enc === 'ssl' ? 'ssl://' : '') . $smtp['host'], $port, $errno, $errstr, 10);
+    check("Port $port erreichbar" . ($enc === 'ssl' ? ' (TLS sofort)' : ' (STARTTLS)'),
+        $sock !== false, $sock === false ? "$errstr ($errno)" : 'offen');
     if ($sock !== false) {
         fclose($sock);
     }
     if ($sock === false) {
-        echo "       -> Manche Hoster sperren ausgehendes SMTP. Dann Port 465 (ssl) probieren\n";
+        echo "       -> Manche Hoster sperren ausgehendes SMTP. Dann Port 465 probieren\n";
         echo "          oder den SMTP-Server des Hosters verwenden.\n";
     }
 
@@ -187,8 +193,13 @@ if (trim((string)($smtp['host'] ?? '')) === '') {
             . 'Zeitpunkt: ' . date('c') . "\n"
         );
         check('Testmail versandt', $error === null, $error ?? 'zugestellt an ' . $smtp['to']);
-        if ($error !== null && isset($options['verbose'])) {
-            echo "\n--- SMTP-Protokoll ---\n" . $mailer->transcript() . "\n";
+        if ($error !== null) {
+            // Das Protokoll ist die einzige Diagnose, die es hier gibt --
+            // deshalb immer zeigen, nicht nur mit --verbose. Benutzername und
+            // Passwort sind darin unkenntlich gemacht.
+            echo "\n--- SMTP-Dialog (Zugangsdaten unkenntlich) ---\n";
+            echo $mailer->transcript();
+            echo "----------------------------------------------\n";
         }
     } else {
         echo "       (echten Versand mit --send-mail testen)\n";

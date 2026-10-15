@@ -44,7 +44,7 @@ final class Mailer
             $this->command('QUIT', [221]);
             return null;
         } catch (\Throwable $e) {
-            return $e->getMessage();
+            return $e->getMessage() . $this->hint();
         } finally {
             if (is_resource($this->socket)) {
                 fclose($this->socket);
@@ -53,21 +53,69 @@ final class Mailer
         }
     }
 
+    /**
+     * Zusatzhinweis zu einer Fehlermeldung, wenn Port und Verschluesselung
+     * nicht zusammenpassen. Ohne diesen Hinweis liest man nur "Verbindung
+     * unerwartet beendet" und raet.
+     */
+    private function hint(): string
+    {
+        $port = (int)($this->cfg['port'] ?? 587);
+        $set  = strtolower(trim((string)($this->cfg['encryption'] ?? 'auto')));
+
+        if ($port === 465 && $set === 'tls') {
+            return "\n  Hinweis: Port 465 erwartet TLS sofort, nicht STARTTLS."
+                 . "\n  Bitte in config/config.php 'encryption' => 'ssl' setzen"
+                 . "\n  (oder 'auto', dann entscheidet der Port).";
+        }
+        if (in_array($port, [587, 25], true) && $set === 'ssl') {
+            return "\n  Hinweis: Port $port erwartet STARTTLS, nicht sofortiges TLS."
+                 . "\n  Bitte 'encryption' => 'tls' setzen (oder 'auto').";
+        }
+        return '';
+    }
+
     /** Vollstaendiger SMTP-Dialog des letzten Versands -- fuer selftest.php. */
     public function transcript(): string
     {
         return $this->transcript;
     }
 
+    /**
+     * Welche Verschluesselung fuer diesen Port gilt.
+     *
+     * Port 465 spricht TLS ab der ersten Sekunde (implizit, "SMTPS"), 587 und
+     * 25 starten im Klartext und schalten per STARTTLS um. Wird 465 mit
+     * STARTTLS angesprochen, wartet der Server auf einen TLS-Handshake,
+     * bekommt stattdessen "EHLO" und legt auf -- ein Fehler, der sich nur als
+     * "Verbindung unerwartet beendet" zeigt und schwer zu deuten ist.
+     *
+     * Deshalb ist 'auto' die Vorgabe: Der Port entscheidet.
+     */
+    public static function resolveEncryption(string $configured, int $port): string
+    {
+        $configured = strtolower(trim($configured));
+        if ($configured !== '' && $configured !== 'auto') {
+            return $configured;
+        }
+        return $port === 465 ? 'ssl' : 'tls';
+    }
+
+    private function encryption(): string
+    {
+        return self::resolveEncryption(
+            (string)($this->cfg['encryption'] ?? 'auto'),
+            (int)($this->cfg['port'] ?? 587),
+        );
+    }
+
     private function connect(): void
     {
         $host = (string)$this->cfg['host'];
         $port = (int)($this->cfg['port'] ?? 587);
-        $enc  = strtolower((string)($this->cfg['encryption'] ?? 'tls'));
+        $enc  = $this->encryption();
         $timeout = (int)($this->cfg['timeout'] ?? 20);
 
-        // Port 465 spricht von der ersten Sekunde an TLS, 587 startet im
-        // Klartext und schaltet per STARTTLS um.
         $dsn = ($enc === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
 
         $context = stream_context_create(['ssl' => [
@@ -91,7 +139,7 @@ final class Mailer
         $ehlo = $this->cfg['ehlo'] ?? (gethostname() ?: 'localhost');
         $this->command("EHLO $ehlo", [250]);
 
-        if (strtolower((string)($this->cfg['encryption'] ?? 'tls')) === 'tls') {
+        if ($this->encryption() === 'tls') {
             $this->command('STARTTLS', [220]);
             $ok = @stream_socket_enable_crypto(
                 $this->socket,
@@ -109,7 +157,9 @@ final class Mailer
     private function authenticate(): void
     {
         $this->command('AUTH LOGIN', [334]);
-        $this->command(base64_encode((string)$this->cfg['user']), [334]);
+        // Auch der Benutzername wird unkenntlich gemacht: Base64 ist keine
+        // Verschluesselung, und das Protokoll wird zum Debuggen weitergegeben.
+        $this->command(base64_encode((string)$this->cfg['user']), [334], redact: true);
         $this->command(base64_encode((string)$this->cfg['pass']), [235], redact: true);
     }
 

@@ -1,0 +1,28 @@
+# Gegenstueck zur .htaccess im Anwendungsverzeichnis.
+#
+# Dort steht "Require all denied", damit Konfiguration und Zustand nicht ueber
+# den Browser lesbar sind. Setzt der Hoster die Subdomain als Alias innerhalb
+# des Haupt-vhosts um, durchlaeuft Apache auch die uebergeordneten Ordner und
+# wendet jene Sperre hier mit an -- tick.php wuerde dann 403 liefern.
+#
+# Dieses Verzeichnis enthaelt ausschliesslich tick.php und darf oeffentlich
+# sein; der Zugriff ist durch das Secret geschuetzt, nicht durch Verstecken.
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Allow from all
+</IfModule>
+
+# Nur tick.php ausliefern, nichts anderes -- auch nicht, falls hier je eine
+# weitere Datei landet.
+<FilesMatch "^(?!tick\.php$).*$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>

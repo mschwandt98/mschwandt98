@@ -59,7 +59,9 @@ return [
         'from'       => 'watcher@example.com',
         'from_name'  => 'Kino-Watcher',
         'to'         => 'du@example.com',
-        'encryption' => 'tls',                 // tls = STARTTLS (587), ssl = implizit (465)
+        // 'auto' = aus dem Port ableiten (465 -> TLS sofort, 587 -> STARTTLS).
+        // Nur setzen, wenn der Provider etwas anderes verlangt: 'ssl', 'tls', 'none'.
+        'encryption' => 'auto',
     ],
 
     // Mit "php8.5 bin/selftest.php --secret" erzeugen.

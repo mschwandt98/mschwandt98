@@ -345,6 +345,18 @@ T::ok($robots->allows('/intern/oeffentlich/seite'), 'laengere Allow-Regel gewinn
 // ------------------------------------------------------------------- Mailer
 
 T::group('Mail');
+// Port 465 mit STARTTLS ist die haeufigste Fehlkonfiguration: Der Server
+// wartet auf einen TLS-Handshake, bekommt "EHLO" und legt auf. 'auto'
+// verhindert das, indem der Port entscheidet.
+T::same('ssl', Mailer::resolveEncryption('auto', 465), 'Port 465 -> TLS sofort');
+T::same('tls', Mailer::resolveEncryption('auto', 587), 'Port 587 -> STARTTLS');
+T::same('tls', Mailer::resolveEncryption('auto', 25), 'Port 25 -> STARTTLS');
+T::same('ssl', Mailer::resolveEncryption('', 465), 'leerer Wert verhaelt sich wie auto');
+T::same('tls', Mailer::resolveEncryption('tls', 465), 'ausdrueckliche Angabe wird respektiert');
+T::same('none', Mailer::resolveEncryption('NONE', 587), 'Gross-/Kleinschreibung egal');
+T::same('auto', (string)Config::fromArray([])->get('smtp.encryption'),
+    'Vorgabe ist auto, nicht ein fest verdrahteter Port');
+
 T::same('Kurz und ASCII', Mailer::encodeHeader('Kurz und ASCII'), 'ASCII-Betreff bleibt unveraendert');
 T::ok(str_starts_with(Mailer::encodeHeader('Grosse Auswahl fuer Städte'), '=?UTF-8?B?'),
     'Betreff mit Umlaut wird RFC-2047-kodiert');
