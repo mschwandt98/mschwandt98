@@ -270,7 +270,7 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ## Tests
 
 ```bash
-php tests/run.php           # 126 Unit-Tests, ohne Netzzugriff
+php tests/run.php           # 130 Unit-Tests, ohne Netzzugriff
 php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
 php tests/smoke.php         # 14 Prüfungen der Entrypoints selbst
 ```

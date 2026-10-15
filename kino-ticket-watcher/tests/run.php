@@ -312,6 +312,23 @@ $events = $transitions->detect($previous, [], [], $now);
 T::same(1, count($events), 'verschwundene Vorstellung wird als Warnung gemeldet');
 T::same(Event::WARNING, $events[0]->type, 'Typ ist warning');
 
+// Nach dem Marathon verschwindet die Vorstellung ganz regulaer aus dem
+// Programm. Ohne diese Unterscheidung kaeme jedes Jahr eine Warnmail, die nach
+// einem Defekt klingt.
+$afterwards = strtotime('2026-12-15 12:00:00');   // Termin ist der 13.12.
+$events = $transitions->detect($previous, [], [], $afterwards);
+T::same(1, count($events), 'auch danach genau ein Ereignis');
+T::same(Event::STATUS_CHANGED, $events[0]->type,
+    'ein vergangener Termin wird als stattgefunden gemeldet, nicht als Warnung');
+T::ok(str_contains($events[0]->summary, 'stattgefunden'), 'und auch so benannt');
+
+// Waehrend der Vorstellung selbst darf noch keine Entwarnung kommen: Das
+// Triple laeuft ueber zwoelf Stunden.
+$during = strtotime('2026-12-13 18:00:00');
+$events = $transitions->detect($previous, [], [], $during);
+T::same(Event::WARNING, $events[0]->type,
+    'am Vorstellungstag gilt ein Verschwinden weiter als Warnung');
+
 // ----------------------------------------------------------------- Scheduler
 
 T::group('Scheduler');

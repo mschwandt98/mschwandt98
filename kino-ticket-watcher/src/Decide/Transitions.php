@@ -77,23 +77,55 @@ final class Transitions
 
         // Verschwundene Treffer sind eine Warnung wert: Entweder wurde die
         // Vorstellung abgesagt, oder unser Parser findet sie nicht mehr.
+        //
+        // Nicht aber, wenn der Termin schon vorbei ist: Dann hat die
+        // Vorstellung einfach stattgefunden, und das Kino nimmt sie aus dem
+        // Programm. Ohne diese Ausnahme kaeme nach jedem Marathon eine
+        // Warnmail, die nach einem Defekt klingt.
         $currentFps = array_map(static fn (Screening $s) => $s->fingerprint(), $current);
         foreach ($previous as $fp => $row) {
             $status = Status::tryFrom((string)($row['status'] ?? '')) ?? Status::Absent;
-            if (!in_array($fp, $currentFps, true) && $status->rank() >= Status::Dated->rank()) {
-                $events[] = new Event(
-                    Event::WARNING,
-                    sprintf(
-                        'Vorstellung "%s" ist aus dem Programm verschwunden (war: %s). Abgesagt -- oder der Parser greift nicht mehr.',
-                        (string)($row['title'] ?? $fp),
-                        $status->label()
-                    ),
-                    details: ['fingerprint' => $fp, 'previous' => $row],
-                );
+            if (in_array($fp, $currentFps, true) || $status->rank() < Status::Dated->rank()) {
+                continue;
             }
+            if (self::alreadyTookPlace($row['starts_at'] ?? null, $now)) {
+                $events[] = new Event(
+                    Event::STATUS_CHANGED,
+                    sprintf(
+                        'Vorstellung "%s" hat stattgefunden und ist aus dem Programm genommen.',
+                        (string)($row['title'] ?? $fp)
+                    ),
+                    previousStatus: $status->value,
+                    details: ['fingerprint' => $fp],
+                );
+                continue;
+            }
+            $events[] = new Event(
+                Event::WARNING,
+                sprintf(
+                    'Vorstellung "%s" ist aus dem Programm verschwunden (war: %s). Abgesagt -- oder der Parser greift nicht mehr.',
+                    (string)($row['title'] ?? $fp),
+                    $status->label()
+                ),
+                details: ['fingerprint' => $fp, 'previous' => $row],
+            );
         }
 
         return $events;
+    }
+
+    /**
+     * Liegt der Termin in der Vergangenheit? Mit etwas Puffer, damit eine
+     * laufende Vorstellung nicht schon als vorbei gilt -- das Triple dauert
+     * ueber zwoelf Stunden.
+     */
+    private static function alreadyTookPlace(mixed $startsAt, int $now): bool
+    {
+        if (!is_string($startsAt) || $startsAt === '') {
+            return false; // ohne Termin lieber warnen als schweigen
+        }
+        $ts = strtotime($startsAt);
+        return $ts !== false && $ts < ($now - 24 * 3600);
     }
 
     private function reminderDue(int $lastNotifiedAt, int $now): bool
