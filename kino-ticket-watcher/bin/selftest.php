@@ -171,6 +171,23 @@ if (trim((string)($smtp['host'] ?? '')) === '') {
             ? "'$configured' bei Port $port -- bitte 'auto' setzen"
             : ($configured === 'auto' ? "auto -> $enc" : $configured));
 
+    // Der mit Abstand haeufigste Grund fuer Spam-Einstufung: Die Absenderadresse
+    // gehoert zu einer anderen Domain als das SMTP-Konto. Dann schlaegt die
+    // SPF-Pruefung des Empfaengers fehl, egal wie sauber die Mail aussieht.
+    $fromDomain = strtolower((string)substr(strrchr((string)$smtp['from'], '@') ?: '', 1));
+    $userDomain = str_contains((string)$smtp['user'], '@')
+        ? strtolower((string)substr(strrchr((string)$smtp['user'], '@') ?: '', 1))
+        : '';
+    if ($fromDomain !== '' && $userDomain !== '') {
+        check('Absender passt zur SMTP-Domain', $fromDomain === $userDomain,
+            $fromDomain === $userDomain ? $fromDomain : "from=$fromDomain, user=$userDomain",
+            fatal: false);
+        if ($fromDomain !== $userDomain) {
+            echo "       -> Unterschiedliche Domains lassen SPF beim Empfaenger fehlschlagen.\n";
+            echo "          Als Absender eine Adresse derselben Domain wie das SMTP-Konto nehmen.\n";
+        }
+    }
+
     $errno = 0; $errstr = '';
     $sock = @fsockopen(($enc === 'ssl' ? 'ssl://' : '') . $smtp['host'], $port, $errno, $errstr, 10);
     check("Port $port erreichbar" . ($enc === 'ssl' ? ' (TLS sofort)' : ' (STARTTLS)'),
@@ -193,6 +210,14 @@ if (trim((string)($smtp['host'] ?? '')) === '') {
             . 'Zeitpunkt: ' . date('c') . "\n"
         );
         check('Testmail versandt', $error === null, $error ?? 'zugestellt an ' . $smtp['to']);
+        if ($error === null) {
+            echo "       -> Jetzt pruefen, ob sie im POSTEINGANG liegt, nicht im Spam.\n";
+            echo "          Landet sie im Spam, hilft Code allein nicht weiter:\n";
+            echo "          1. Absender als Kontakt anlegen und 'kein Spam' markieren\n";
+            echo "          2. Posteingangsregel auf das Betreff-Praefix legen\n";
+            echo "          3. SPF und DKIM fuer die Absenderdomain einrichten\n";
+            echo "          Siehe README, Abschnitt 'Mail landet im Spam'.\n";
+        }
         if ($error !== null) {
             // Das Protokoll ist die einzige Diagnose, die es hier gibt --
             // deshalb immer zeigen, nicht nur mit --verbose. Benutzername und

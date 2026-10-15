@@ -357,17 +357,40 @@ T::same('none', Mailer::resolveEncryption('NONE', 587), 'Gross-/Kleinschreibung 
 T::same('auto', (string)Config::fromArray([])->get('smtp.encryption'),
     'Vorgabe ist auto, nicht ein fest verdrahteter Port');
 
+// Vorher stand im Koerper "Content-Transfer-Encoding: 8bit" mit rohem UTF-8.
+// Das war ein Protokollverstoss (8BITMIME war nie ausgehandelt) und ein
+// Spam-Merkmal. Quoted-printable ist 7-bit-sicher und unauffaellig.
+$encoded = Mailer::encodeBody("Zeile eins\nZeile zwei: Grosse Staedte\n");
+T::ok(!str_contains($encoded, '=0A'),
+    'Zeilenumbrueche bleiben echte Umbrueche und werden nicht als =0A kodiert');
+T::ok(str_contains($encoded, "\r\n"), 'Umbrueche sind CRLF, wie SMTP es verlangt');
+T::same("Zeile eins\r\nZeile zwei: Grosse Staedte\r\n", quoted_printable_decode($encoded),
+    'der Empfaenger bekommt den Text unveraendert zurueck');
+
+$umlaut = Mailer::encodeBody("Grosse Staedte: \u{e4}\u{f6}\u{fc}\n");
+T::ok(str_contains($umlaut, '='), 'Umlaute werden kodiert statt roh gesendet');
+T::same("Grosse Staedte: \u{e4}\u{f6}\u{fc}\r\n", quoted_printable_decode($umlaut),
+    'und kommen unveraendert an');
+
+T::ok(str_starts_with(Mailer::encodeBody(".htaccess am Zeilenanfang\n"), '..'),
+    'ein Punkt am Zeilenanfang wird verdoppelt -- sonst endet der DATA-Block zu frueh');
+
 T::same('Kurz und ASCII', Mailer::encodeHeader('Kurz und ASCII'), 'ASCII-Betreff bleibt unveraendert');
 T::ok(str_starts_with(Mailer::encodeHeader('Grosse Auswahl fuer Städte'), '=?UTF-8?B?'),
     'Betreff mit Umlaut wird RFC-2047-kodiert');
 
 $templates = new Templates();
+T::ok(!str_contains($templates->text([$alarmProbe = new Event(
+    Event::STATUS_CHANGED, 'x', $mk(Status::Bookable), Status::Dated->value)], 'Kino'), 'JETZT BUCHBAR'),
+    'kein Schreien in Grossbuchstaben im Mailtext');
+T::ok(str_contains((new Templates('[Test]'))->subject([$alarmProbe], 'Kino'), '[Test]'),
+    'Betreff-Praefix ist konfigurierbar');
 $alarm = new Event(Event::STATUS_CHANGED, 'Uebergang', $mk(Status::Bookable), Status::Dated->value);
 $subject = $templates->subject([$alarm], 'CinemaxX Magdeburg');
 T::ok(str_starts_with($subject, '[KINO-ALARM]'), 'Betreff traegt das feste Praefix');
 T::ok(str_contains($subject, 'jetzt buchbar'), 'Betreff nennt den Anlass');
 $text = $templates->text([$alarm], 'CinemaxX Magdeburg');
-T::ok(str_contains($text, 'JETZT BUCHBAR'), 'Text fuehrt mit dem Alarm');
+T::ok(str_contains($text, 'Jetzt buchbar'), 'Text fuehrt mit dem Alarm');
 T::ok(strpos($text, 'http') < 200, 'Direktlink steht weit oben');
 
 // -------------------------------------------------------------------- Store

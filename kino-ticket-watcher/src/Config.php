@@ -142,6 +142,9 @@ final class Config
                 'full_scan_seconds'       => 1800,
             ],
             'notify' => [
+                // Fester Betreffbeginn, damit sich darauf eine
+                // Posteingangsregel mit Push-Benachrichtigung legen laesst.
+                'subject_prefix'        => '[KINO-ALARM]',
                 'bookable_repeat_after' => [6 * 3600, 24 * 3600],
                 'heartbeat_weekday'     => 1,        // Montag
                 'heartbeat_from_month'  => 9,

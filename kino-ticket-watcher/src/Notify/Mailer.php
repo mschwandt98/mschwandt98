@@ -195,35 +195,40 @@ final class Mailer
             ? self::encodeHeader($fromName) . ' <' . $this->cfg['from'] . '>'
             : (string)$this->cfg['from'];
 
+        // Kein eigener X-Mailer: Ein unbekannter Mailer-Name ist ein
+        // Spam-Merkmal, sein Fehlen ist unauffaellig.
+        //
+        // Auto-Submitted bleibt: Es ist semantisch richtig und verhindert
+        // Abwesenheits-Autoantworten auf einen Alarm.
         $headers = [
             'Date: ' . date('r'),
             'From: ' . $from,
+            'Reply-To: ' . (string)$this->cfg['from'],
             'To: ' . implode(', ', $this->recipients()),
             'Subject: ' . self::encodeHeader($subject),
             'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . $this->senderDomain() . '>',
             'MIME-Version: 1.0',
-            'X-Mailer: KinoTicketWatcher',
             'Auto-Submitted: auto-generated',
         ];
 
         if ($html === null) {
             $headers[] = 'Content-Type: text/plain; charset=UTF-8';
-            $headers[] = 'Content-Transfer-Encoding: 8bit';
-            return implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($text);
+            $headers[] = 'Content-Transfer-Encoding: quoted-printable';
+            return implode("\r\n", $headers) . "\r\n\r\n" . self::encodeBody($text);
         }
 
         $headers[] = 'Content-Type: multipart/alternative; boundary="' . $boundary . '"';
         $body = implode("\r\n", [
             '--' . $boundary,
             'Content-Type: text/plain; charset=UTF-8',
-            'Content-Transfer-Encoding: 8bit',
+            'Content-Transfer-Encoding: quoted-printable',
             '',
-            self::dotStuff($text),
+            self::encodeBody($text),
             '--' . $boundary,
             'Content-Type: text/html; charset=UTF-8',
-            'Content-Transfer-Encoding: 8bit',
+            'Content-Transfer-Encoding: quoted-printable',
             '',
-            self::dotStuff($html),
+            self::encodeBody($html),
             '--' . $boundary . '--',
         ]);
         return implode("\r\n", $headers) . "\r\n\r\n" . $body;
@@ -245,14 +250,26 @@ final class Mailer
     }
 
     /**
-     * Eine Zeile, die mit einem Punkt beginnt, wuerde den DATA-Block vorzeitig
-     * beenden. Der Standard verlangt deshalb einen zweiten Punkt davor.
+     * Koerper fuer den DATA-Block aufbereiten.
+     *
+     * Vorher stand hier "Content-Transfer-Encoding: 8bit" mit rohem UTF-8.
+     * Das ist zweifach falsch: Der Server hatte 8BITMIME nie angekuendigt --
+     * also ein Protokollverstoss -- und rohes 8bit ist ein Spam-Merkmal.
+     * Quoted-printable ist 7-bit-sicher, immer zulaessig und unauffaellig.
+     *
+     * Danach das Dot-Stuffing: Eine Zeile, die mit einem Punkt beginnt, wuerde
+     * den DATA-Block vorzeitig beenden. Quoted-printable kodiert den Punkt
+     * nicht, die Regel bleibt also noetig.
      */
-    private static function dotStuff(string $body): string
+    public static function encodeBody(string $body): string
     {
-        $body = str_replace(["\r\n", "\r", "\n"], "\n", $body);
+        // Reihenfolge ist entscheidend: quoted_printable_encode() erhaelt nur
+        // CRLF als echten Zeilenumbruch. Bei bloss LF kodiert es jeden Umbruch
+        // als "=0A", und der ganze Text wird eine einzige Zeile.
+        $body = str_replace(["\r\n", "\r"], "\n", $body);
         $body = str_replace("\n", "\r\n", $body);
-        return preg_replace('/^\./m', '..', $body) ?? $body;
+        $encoded = quoted_printable_encode($body);
+        return preg_replace('/^\./m', '..', $encoded) ?? $encoded;
     }
 
     /** @param list<int> $expected */

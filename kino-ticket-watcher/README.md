@@ -190,6 +190,49 @@ eine URL zu, stattdessen dieselbe `tick.php`-URL eintragen.
 
 ---
 
+## Mail landet im Spam
+
+Das ist der eine Fehlerfall, der den ganzen Watcher wertlos macht: Eine
+Alarmmail, die niemand sieht, ist schlimmer als keine, weil man sich auf sie
+verlässt.
+
+Was der Code dafür tut:
+
+- **Quoted-printable** statt rohem 8-Bit-UTF-8. Letzteres war zugleich ein
+  Protokollverstoß — `8BITMIME` wurde nie ausgehandelt — und ein Spam-Merkmal.
+- **Kein eigener `X-Mailer`-Header.** Ein unbekannter Mailer-Name kostet Punkte,
+  sein Fehlen ist unauffällig.
+- **`Reply-To`** gesetzt, `Message-ID` mit der Absenderdomain, `Date` korrekt.
+- Keine Großbuchstaben-Schreierei im Text.
+
+Was der Code **nicht** lösen kann — in dieser Reihenfolge abarbeiten:
+
+**1. Absender und SMTP-Konto müssen zur selben Domain gehören.**
+Schickst du über `smtp.example.com` mit dem Konto `ich@example.com`, muss
+`smtp.from` ebenfalls `…@example.com` sein. Weicht die Domain ab, schlägt die
+SPF-Prüfung beim Empfänger fehl, egal wie saubergebaut die Mail ist. Der
+Selbsttest prüft das und warnt.
+
+**2. Absender als Kontakt anlegen und „kein Spam" markieren.**
+Unspektakulär, aber die einzige Maßnahme, die mit Sicherheit wirkt. Dazu eine
+Posteingangsregel auf das Betreff-Präfix `[KINO-ALARM]` legen — die lässt sich
+in den meisten Mail-Apps mit einer Push-Benachrichtigung verbinden.
+
+**3. SPF und DKIM für die Absenderdomain einrichten.**
+Bei einer eigenen Domain beim Hoster meist zwei Klicks. Ohne diese Einträge
+bleibt jede Mail von einer eigenen Domain grenzwertig.
+
+**Alternative, falls das zu mühsam ist:** Nimm als Absender *und* Empfänger
+dieselbe große Freemail-Adresse (Gmail, GMX) mit App-Passwort. Dann sendet der
+Watcher über deren Server, SPF und DKIM stimmen von sich aus, und die Mail
+landet praktisch immer im Posteingang. Der Preis: Die Absenderadresse ist dann
+nicht mehr deine eigene Domain.
+
+**Prüfen, ob es geholfen hat:** `php8.5 bin/selftest.php --send-mail` und
+nachsehen. Der wöchentliche Lebenszeichen-Brief ab September prüft das danach
+von selbst weiter — wenn er ausbleibt, weißt du, dass die Zustellung klemmt,
+bevor es darauf ankommt.
+
 ## IONOS-Besonderheit: PHP läuft als CGI
 
 `php8.5` ist auf IONOS kein CLI-Binary, sondern CGI. Zwei Folgen:
@@ -227,7 +270,7 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ## Tests
 
 ```bash
-php tests/run.php           # 111 Unit-Tests, ohne Netzzugriff
+php tests/run.php           # 126 Unit-Tests, ohne Netzzugriff
 php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
 php tests/smoke.php         # 14 Prüfungen der Entrypoints selbst
 ```

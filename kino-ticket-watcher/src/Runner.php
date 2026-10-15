@@ -507,7 +507,7 @@ final class Runner
     /** @param list<Event> $events */
     private function notify(array $events): ?string
     {
-        $templates = new Templates();
+        $templates = new Templates((string)$this->config->get('notify.subject_prefix', ''));
         $cinema    = (string)$this->config->get('cinema.name');
         $subject   = $templates->subject($events, $cinema);
 
