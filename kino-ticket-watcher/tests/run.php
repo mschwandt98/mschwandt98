@@ -227,6 +227,33 @@ T::same('HO00001617', $bookable[0]->filmId, 'Film-Kennung wird uebernommen');
 T::ok(str_contains($api->sessionsUrl('1391', $bookable[0]->filmId), 'filmId=HO00001617'),
     'mit der Kennung kann gezielt gefragt werden statt das ganze Kino zu laden');
 
+T::group('API-Header');
+$defaults = (array)Config::fromArray([])->get('http.api_headers');
+T::ok(!isset($defaults['Origin']),
+    'kein Origin in den Vorgaben -- die API antwortet damit gemessen immer 401');
+T::ok(str_contains((string)($defaults['Accept'] ?? ''), 'json'),
+    'Accept verlangt JSON, nicht HTML');
+
+$resolved = CinemaxxApi::resolveHeaders(
+    ['Referer' => '{program_url}', 'Origin' => '{base_url}', 'Fest' => 'bleibt'],
+    'https://www.cinemaxx.de/',
+    'https://www.cinemaxx.de/kinoprogramm/magdeburg',
+);
+T::same('https://www.cinemaxx.de/kinoprogramm/magdeburg', $resolved['Referer'],
+    '{program_url} wird ersetzt');
+T::same('https://www.cinemaxx.de', $resolved['Origin'],
+    '{base_url} wird ersetzt und der Schraegstrich entfernt');
+T::same('bleibt', $resolved['Fest'], 'feste Werte bleiben unveraendert');
+
+T::group('Ausgabe ohne CLI-Konstanten');
+T::same('php://stderr', \Kino\Output::errorTarget('cli'),
+    'in der CLI gehen Fehler nach stderr');
+T::same('php://output', \Kino\Output::errorTarget('cgi-fcgi'),
+    'unter CGI nach php://output -- stderr landet dort in der Serverlogdatei');
+ob_start();
+\Kino\Output::line('hallo');
+T::same('hallo', ob_get_clean(), 'Ausgabe funktioniert ohne STDOUT-Konstante');
+
 // --------------------------------------------------------------- __NEXT_DATA__
 
 T::group('__NEXT_DATA__');

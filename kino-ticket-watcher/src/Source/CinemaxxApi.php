@@ -39,6 +39,28 @@ final class CinemaxxApi
     ) {
     }
 
+    /**
+     * Loest {base_url} und {program_url} in den konfigurierten Headern auf,
+     * damit die Konfiguration die Domain nicht doppelt fuehren muss.
+     *
+     * @param array<string,mixed> $headers
+     * @return array<string,string>
+     */
+    public static function resolveHeaders(array $headers, string $baseUrl, string $programUrl): array
+    {
+        $replacements = [
+            '{base_url}'    => rtrim($baseUrl, '/'),
+            '{program_url}' => $programUrl,
+        ];
+        $out = [];
+        foreach ($headers as $name => $value) {
+            if (is_string($name) && is_string($value)) {
+                $out[$name] = strtr($value, $replacements);
+            }
+        }
+        return $out;
+    }
+
     public function sessionsUrl(string $cinemaId, ?string $filmId = null): string
     {
         $query = [

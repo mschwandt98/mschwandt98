@@ -66,11 +66,19 @@ $variants = [
 ];
 
 $winners = [];
+$seenWith = [];    // Header => wie oft gesendet
+$failedWith = [];  // Header => wie oft dabei gescheitert
 foreach ($variants as $label => [$headers, $ua, $useCookies]) {
     $res = request($apiUrl, $headers, $ua, $cookieJar, useCookies: $useCookies);
     $ok  = $res['status'] === 200;
     if ($ok) {
         $winners[$label] = [$headers, $ua, $useCookies];
+    }
+    foreach (array_keys($headers) as $name) {
+        $seenWith[$name] = ($seenWith[$name] ?? 0) + 1;
+        if (!$ok) {
+            $failedWith[$name] = ($failedWith[$name] ?? 0) + 1;
+        }
     }
     printf(
         "[%s] %-36s HTTP %-3d  %s\n",
@@ -84,7 +92,23 @@ foreach ($variants as $label => [$headers, $ua, $useCookies]) {
 
 @unlink($cookieJar);
 
+// Header, die in JEDER Variante, die sie enthielt, zum Fehlschlag fuehrten.
+// Das ist der schnellste Weg zur Ursache: ein einzelner Header kann den
+// Endpunkt dazu bringen, den Request als fremde Herkunft abzuweisen.
+$harmful = [];
+foreach ($seenWith as $name => $count) {
+    if (($failedWith[$name] ?? 0) === $count && $count > 0) {
+        $harmful[] = $name;
+    }
+}
+
 echo "\n", str_repeat('=', 72), "\n";
+
+if ($harmful !== []) {
+    echo "Schaedliche Header: " . implode(', ', $harmful) . "\n";
+    echo "Jede Variante mit diesen Headern scheiterte, jede ohne sie ging durch.\n";
+    echo "Sie duerfen NICHT in api_headers stehen.\n\n";
+}
 
 if ($winners === []) {
     echo "Keine Variante funktioniert.\n\n";
@@ -120,6 +144,10 @@ if ($ua === $browserUa) {
         $ua = $ownUa;
     }
     sleep(2);
+}
+
+if ($headers === [] && $ua !== $browserUa && !$useCookies) {
+    echo "Die sparsamste Variante hat gar keine Zusatzheader -- nichts einzudampfen.\n";
 }
 
 // Header einzeln weglassen und sehen, ob es noch geht.

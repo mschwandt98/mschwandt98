@@ -102,17 +102,18 @@ final class Config
                 'min_interval_per_host' => 2,
                 'respect_robots' => true,
                 'user_agent' => 'KinoTicketWatcher/1.0 (persoenlicher Benachrichtigungs-Watcher)',
-                // Die Showings-API antwortet einem nackten Request mit 401.
-                // Gemessen auf einem IONOS-Webspace sind diese Header UND die
-                // Cookies der Programmseite noetig; der eigene User-Agent
-                // genuegt dabei. Die Sitzung holt der Watcher selbst nach,
-                // wenn die API ablehnt -- siehe Runner::fetchApi().
+                // KEIN Origin-Header. Gemessen auf einem IONOS-Webspace:
+                // Jede Variante MIT Origin antwortet mit 401, jede ohne ihn
+                // mit 200. Der Endpunkt behandelt einen gesetzten Origin als
+                // fremde Herkunft und weist den Request ab -- ein eigenes
+                // Backend schickt eben keinen.
+                //
+                // Was die API braucht, ist die Sitzung der Programmseite. Die
+                // holt der Watcher selbst nach, wenn sie fehlt oder ablaeuft
+                // (siehe Runner::fetchApi()).
                 'api_headers' => [
-                    'Accept'           => 'application/json, text/plain, */*',
-                    'Referer'          => '{program_url}',
-                    'Origin'           => '{base_url}',
-                    'X-Requested-With' => 'XMLHttpRequest',
-                    'Accept-Language'  => 'de-DE,de;q=0.9',
+                    'Accept'          => 'application/json, text/plain, */*',
+                    'Accept-Language' => 'de-DE,de;q=0.9',
                 ],
             ],
             'schedule' => [

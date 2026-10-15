@@ -19,6 +19,7 @@ declare(strict_types=1);
 require __DIR__ . '/../src/autoload.php';
 
 use Kino\Config;
+use Kino\Output;
 use Kino\Http\Client;
 use Kino\Match\TitleMatcher;
 use Kino\Parse\Dom;
@@ -155,5 +156,5 @@ function save(string $dir, string $name, string $body): void
 
 function line(string $s): void
 {
-    fwrite(STDOUT, $s . "\n");
+    Output::line($s . "\n");
 }

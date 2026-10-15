@@ -83,12 +83,11 @@ return [
         //
         // die noetige Kombination und gibt den Abschnitt zum Einsetzen aus.
         // {base_url} und {program_url} werden automatisch ersetzt.
+        // Wichtig: KEIN Origin-Header. Gemessen auf einem IONOS-Webspace
+        // antwortet die API mit Origin stets 401, ohne ihn 200.
         'api_headers' => [
-            'Accept'           => 'application/json, text/plain, */*',
-            'Referer'          => '{program_url}',
-            'Origin'           => '{base_url}',
-            'X-Requested-With' => 'XMLHttpRequest',
-            'Accept-Language'  => 'de-DE,de;q=0.9',
+            'Accept'          => 'application/json, text/plain, */*',
+            'Accept-Language' => 'de-DE,de;q=0.9',
         ],
     ],
 ];

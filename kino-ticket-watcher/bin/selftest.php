@@ -13,14 +13,15 @@ declare(strict_types=1);
 require __DIR__ . '/../src/autoload.php';
 
 use Kino\Config;
+use Kino\Output;
 use Kino\Http\Client;
 use Kino\Notify\Mailer;
 
 $options = getopt('', ['send-mail', 'secret', 'verbose']);
 
 if (isset($options['secret'])) {
-    fwrite(STDOUT, "Neues tick_secret (in config/config.php eintragen):\n\n");
-    fwrite(STDOUT, bin2hex(random_bytes(32)) . "\n\n");
+    Output::line("Neues tick_secret (in config/config.php eintragen):\n\n");
+    Output::line(bin2hex(random_bytes(32)) . "\n\n");
     exit(0);
 }
 
@@ -116,10 +117,23 @@ if ($program->ok()) {
 if ($cinemaId === '') {
     check('Showings-API abfragbar', false, 'keine Kino-Kennung');
 } else {
-    $api = new Kino\Source\CinemaxxApi($http, $base);
-    $apiRes = $http->get($api->sessionsUrl($cinemaId));
-    check('Showings-API erreichbar', $apiRes->ok(),
+    // Genau die Header verwenden, die auch der Watcher schickt. Vorher wurde
+    // hier "nackt" geprueft -- deshalb war der Selbsttest gruen, waehrend
+    // watch.php einen 401 bekam. Ein Test, der einen anderen Weg nimmt als der
+    // Produktivcode, prueft den Produktivcode nicht.
+    $apiHeaders = Kino\Source\CinemaxxApi::resolveHeaders(
+        (array)$config->get('http.api_headers', []),
+        $base,
+        $programUrl,
+    );
+    $api = new Kino\Source\CinemaxxApi($http, $base, $apiHeaders);
+    $apiRes = $http->get($api->sessionsUrl($cinemaId), [], $apiHeaders);
+    check('Showings-API erreichbar (mit den Headern des Watchers)', $apiRes->ok(),
         $apiRes->ok() ? strlen($apiRes->body) . ' Bytes' : ($apiRes->error ?? '?'));
+    if (!$apiRes->ok() && isset($apiHeaders['Origin'])) {
+        echo "       -> api_headers enthaelt 'Origin'. Gemessen antwortet die API damit\n";
+        echo "          immer mit 401. Bitte den Eintrag entfernen.\n";
+    }
 
     if ($apiRes->ok()) {
         $screenings = $api->parse($apiRes->body);

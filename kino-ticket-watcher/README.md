@@ -108,11 +108,16 @@ Absender zur Kontaktliste hinzufügen und eine Regel auf das Betreff-Präfix
 Sperrt IONOS ausgehendes SMTP auf Port 587, `'encryption' => 'ssl'` mit Port 465
 probieren.
 
-**Zur API-Authentifizierung:** Einem nackten Request antwortet die API mit
-`401`. Nötig sind die Header aus `http.api_headers` **und** die Cookies der
-Programmseite. Beides ist eingebaut: Der Watcher bewahrt die Cookies im Zustand
-auf und lädt die Programmseite nur dann nach, wenn die API ablehnt. Dafür ist
-nichts einzustellen.
+**Zur API-Authentifizierung**, auf einem IONOS-Webspace gemessen:
+
+- **Kein `Origin`-Header.** Mit gesetztem `Origin` antwortet die API *immer*
+  mit `401` — sie behandelt den Request dann als fremde Herkunft. Ein eigenes
+  Backend schickt eben keinen. Der Integrationstest geht rot, falls jemand den
+  Header wieder einträgt.
+- **`Accept` muss JSON verlangen**, nicht HTML.
+- **Die Sitzung der Programmseite** wird benötigt. Der Watcher bewahrt die
+  Cookies im Zustand auf und lädt die Programmseite nur dann nach, wenn die API
+  ablehnt. Dafür ist nichts einzustellen.
 
 Antwortet die API trotzdem mit `401` oder `403`:
 
@@ -120,8 +125,9 @@ Antwortet die API trotzdem mit `401` oder `403`:
 php8.5 bin/probe-api.php
 ```
 
-Das Werkzeug probiert die Kombinationen durch, dampft die funktionierende auf
-das Nötige ein und gibt den fertigen `config.php`-Abschnitt aus.
+Das Werkzeug probiert die Kombinationen durch, benennt die *schädlichen* Header,
+dampft die funktionierende Variante auf das Nötige ein und gibt den fertigen
+`config.php`-Abschnitt aus.
 
 ### 4. Subdomain auf `public/` zeigen lassen
 
@@ -178,6 +184,21 @@ eine URL zu, stattdessen dieselbe `tick.php`-URL eintragen.
 
 ---
 
+## IONOS-Besonderheit: PHP läuft als CGI
+
+`php8.5` ist auf IONOS kein CLI-Binary, sondern CGI. Zwei Folgen:
+
+- Jede Ausgabe beginnt mit einer Zeile `Content-type: text/html; charset=UTF-8`.
+  Das ist normal und harmlos.
+- Die Konstanten `STDOUT` und `STDERR` **existieren dort nicht**. Ein
+  `fwrite(STDOUT, …)` ist ein fataler Fehler, und man sieht nur
+  `Status: 500 Internal Server Error` ohne weitere Erklärung. Der Watcher
+  benutzt deshalb nirgends diese Konstanten, sondern `Kino\Output` — das
+  funktioniert in beiden Umgebungen.
+
+Wer das Projekt erweitert, sollte für Ausgaben `Output::line()` und
+`Output::error()` verwenden, nicht `echo` mit `STDOUT`.
+
 ## Bedienung
 
 ```bash
@@ -200,13 +221,13 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ## Tests
 
 ```bash
-php tests/run.php           # 103 Unit-Tests, ohne Netzzugriff
+php tests/run.php           # 111 Unit-Tests, ohne Netzzugriff
 php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
 ```
 
 Der Integrationstest startet einen PHP-Webserver, der die API unter ihrem echten
-Pfad nachbildet — inklusive der `401`-Antwort, solange Header oder Sitzungscookie
-fehlen. Er spielt den vollständigen Ablauf durch: Embargo → buchbar →
+Pfad nachbildet — inklusive der `401`-Antwort, wenn das Sitzungscookie fehlt
+*oder* ein `Origin`-Header gesetzt ist. Er spielt den vollständigen Ablauf durch: Embargo → buchbar →
 ausverkauft, dazu das selbständige Nachholen der Sitzung, die gezielte Abfrage
 per Film-Kennung, den API-Ausfall mit Rückfall auf HTML und den `304`-Fall.
 

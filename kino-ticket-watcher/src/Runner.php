@@ -261,25 +261,14 @@ final class Runner
              . (string)$this->config->get('cinema.program_path');
     }
 
-    /**
-     * Header fuer die API. {base_url} und {program_url} werden ersetzt, damit
-     * die Konfiguration die Domain nicht doppelt fuehren muss.
-     *
-     * @return array<string,string>
-     */
+    /** @return array<string,string> */
     private function apiHeaders(): array
     {
-        $replacements = [
-            '{base_url}'    => rtrim((string)$this->config->get('cinema.base_url'), '/'),
-            '{program_url}' => $this->programUrl(),
-        ];
-        $out = [];
-        foreach ((array)$this->config->get('http.api_headers', []) as $name => $value) {
-            if (is_string($name) && is_string($value)) {
-                $out[$name] = strtr($value, $replacements);
-            }
-        }
-        return $out;
+        return CinemaxxApi::resolveHeaders(
+            (array)$this->config->get('http.api_headers', []),
+            (string)$this->config->get('cinema.base_url'),
+            $this->programUrl(),
+        );
     }
 
     private function matcher(): TitleMatcher
@@ -559,7 +548,7 @@ final class Runner
     private function log(string $message): void
     {
         if ($this->verbose) {
-            fwrite(STDOUT, '  ' . $message . "\n");
+            Output::line('  ' . $message . "\n");
         }
     }
 }
