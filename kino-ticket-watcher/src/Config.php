@@ -102,6 +102,21 @@ final class Config
                 'min_interval_per_host' => 2,
                 'respect_robots' => true,
                 'user_agent' => 'KinoTicketWatcher/1.0 (persoenlicher Benachrichtigungs-Watcher)',
+                // Die Showings-API antwortet einem nackten Request mit 401.
+                // Sie erwartet dieselben Header, die der Browser mitschickt --
+                // die Antwort traegt "Vary: Origin", der Endpunkt prueft also
+                // die Herkunft. Welche Kombination tatsaechlich noetig ist,
+                // zeigt bin/probe-api.php auf dem Zielsystem.
+                'api_headers' => [
+                    'Accept'           => 'application/json, text/plain, */*',
+                    'Referer'          => '{program_url}',
+                    'Origin'           => '{base_url}',
+                    'X-Requested-With' => 'XMLHttpRequest',
+                ],
+                // Vor dem API-Abruf einmal die Programmseite laden, um deren
+                // Cookies einzusammeln. Nur noetig, wenn die API eine Sitzung
+                // verlangt -- kostet sonst einen Request pro Lauf.
+                'warmup' => false,
             ],
             'schedule' => [
                 'quiet_season_seconds' => 12 * 3600,

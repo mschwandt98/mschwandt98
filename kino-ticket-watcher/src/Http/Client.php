@@ -18,6 +18,15 @@ final class Client
     /** @var array<string,int> Zeitpunkt des letzten Requests je Host */
     private array $lastRequestAt = [];
 
+    /**
+     * Cookies je Host. Manche Endpunkte antworten erst, wenn die Cookies der
+     * zuvor geladenen Seite mitkommen -- deshalb werden sie eingesammelt und
+     * bei weiteren Requests an denselben Host wieder mitgeschickt.
+     *
+     * @var array<string,array<string,string>>
+     */
+    private array $cookies = [];
+
     public function __construct(
         private readonly string $userAgent,
         private readonly int $timeout = 15,
@@ -29,8 +38,9 @@ final class Client
 
     /**
      * @param array{etag?:?string,last_modified?:?string} $cache
+     * @param array<string,string> $extraHeaders zusaetzliche Request-Header
      */
-    public function get(string $url, array $cache = []): Response
+    public function get(string $url, array $cache = [], array $extraHeaders = []): Response
     {
         if ($this->respectRobots && !$this->allowedByRobots($url)) {
             return new Response(0, '', error: 'durch robots.txt untersagt: ' . $url);
@@ -45,7 +55,7 @@ final class Client
                 sleep(2 ** $attempt);
             }
             $attempt++;
-            $res = $this->request($url, $cache);
+            $res = $this->request($url, $cache, $extraHeaders);
             if ($res->ok()) {
                 return $res;
             }
@@ -58,15 +68,32 @@ final class Client
         return new Response(0, '', error: $lastError . ' (nach ' . $attempt . ' Versuchen)');
     }
 
-    private function request(string $url, array $cache): Response
+    /** @param array<string,string> $extraHeaders */
+    private function request(string $url, array $cache, array $extraHeaders = []): Response
     {
-        $headers = ['Accept: text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
-                    'Accept-Language: de-DE,de;q=0.9'];
+        $headerMap = [
+            'Accept'          => 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+            'Accept-Language' => 'de-DE,de;q=0.9',
+        ];
+        foreach ($extraHeaders as $name => $value) {
+            if (is_string($name) && $value !== '') {
+                $headerMap[$name] = $value;
+            }
+        }
         if (!empty($cache['etag'])) {
-            $headers[] = 'If-None-Match: ' . $cache['etag'];
+            $headerMap['If-None-Match'] = $cache['etag'];
         }
         if (!empty($cache['last_modified'])) {
-            $headers[] = 'If-Modified-Since: ' . $cache['last_modified'];
+            $headerMap['If-Modified-Since'] = $cache['last_modified'];
+        }
+
+        $headers = [];
+        foreach ($headerMap as $name => $value) {
+            $headers[] = $name . ': ' . $value;
+        }
+        $cookie = $this->cookieHeader($url);
+        if ($cookie !== null) {
+            $headers[] = 'Cookie: ' . $cookie;
         }
 
         $ch = curl_init($url);
@@ -83,11 +110,16 @@ final class Client
             CURLOPT_USERAGENT      => $this->userAgent,
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_ENCODING       => '',
-            CURLOPT_HEADERFUNCTION => function ($_, string $line) use (&$responseHeaders): int {
+            CURLOPT_HEADERFUNCTION => function ($_, string $line) use (&$responseHeaders, $url): int {
                 $len = strlen($line);
                 if (str_contains($line, ':')) {
                     [$k, $v] = explode(':', $line, 2);
-                    $responseHeaders[strtolower(trim($k))] = trim($v);
+                    $name = strtolower(trim($k));
+                    if ($name === 'set-cookie') {
+                        $this->rememberCookie($url, trim($v));
+                    } else {
+                        $responseHeaders[$name] = trim($v);
+                    }
                 }
                 return $len;
             },
@@ -111,6 +143,41 @@ final class Client
             notModified:  $status === 304,
             finalUrl:     $final,
         );
+    }
+
+    private function rememberCookie(string $url, string $setCookie): void
+    {
+        $pair = explode(';', $setCookie, 2)[0];
+        if (!str_contains($pair, '=')) {
+            return;
+        }
+        [$name, $value] = explode('=', $pair, 2);
+        $name = trim($name);
+        if ($name === '') {
+            return;
+        }
+        $host = parse_url($url, PHP_URL_HOST) ?: 'default';
+        $this->cookies[$host][$name] = trim($value);
+    }
+
+    private function cookieHeader(string $url): ?string
+    {
+        $host = parse_url($url, PHP_URL_HOST) ?: 'default';
+        $jar = $this->cookies[$host] ?? [];
+        if ($jar === []) {
+            return null;
+        }
+        $parts = [];
+        foreach ($jar as $name => $value) {
+            $parts[] = $name . '=' . $value;
+        }
+        return implode('; ', $parts);
+    }
+
+    /** Laedt eine Seite nur, um deren Cookies einzusammeln. */
+    public function warmup(string $url): bool
+    {
+        return $this->get($url)->ok();
     }
 
     private function throttle(string $url): void

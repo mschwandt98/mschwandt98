@@ -74,7 +74,16 @@ final class Runner
 
         // --- Quelle 1: Showings-API ------------------------------------------
         if ($cinemaId !== null) {
-            $api = new CinemaxxApi($http, (string)$this->config->get('cinema.base_url'));
+            if ((bool)$this->config->get('http.warmup', false)) {
+                // Einmal die Programmseite laden, damit deren Cookies im
+                // Client liegen, bevor die API gefragt wird.
+                $http->warmup($this->programUrl());
+            }
+            $api = new CinemaxxApi(
+                $http,
+                (string)$this->config->get('cinema.base_url'),
+                $this->apiHeaders(),
+            );
             $result = $api->fetch($cinemaId, $this->store, $keep);
 
             if ($result['notModified']) {
@@ -174,6 +183,33 @@ final class Runner
             (int)$this->config->get('http.min_interval_per_host'),
             (bool)$this->config->get('http.respect_robots'),
         );
+    }
+
+    private function programUrl(): string
+    {
+        return rtrim((string)$this->config->get('cinema.base_url'), '/')
+             . (string)$this->config->get('cinema.program_path');
+    }
+
+    /**
+     * Header fuer die API. {base_url} und {program_url} werden ersetzt, damit
+     * die Konfiguration die Domain nicht doppelt fuehren muss.
+     *
+     * @return array<string,string>
+     */
+    private function apiHeaders(): array
+    {
+        $replacements = [
+            '{base_url}'    => rtrim((string)$this->config->get('cinema.base_url'), '/'),
+            '{program_url}' => $this->programUrl(),
+        ];
+        $out = [];
+        foreach ((array)$this->config->get('http.api_headers', []) as $name => $value) {
+            if (is_string($name) && is_string($value)) {
+                $out[$name] = strtr($value, $replacements);
+            }
+        }
+        return $out;
     }
 
     private function matcher(): TitleMatcher

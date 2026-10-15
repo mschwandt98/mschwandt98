@@ -72,8 +72,22 @@ if (!is_dir($varDir)) {
 check('var/ beschreibbar', is_dir($varDir) && is_writable($varDir), $varDir);
 check('var/.htaccess vorhanden', is_file($varDir . '/.htaccess'),
     'schuetzt Zustand und Snapshots', fatal: false);
-check('config/ nicht im Document Root', !isDocumentRootPath(dirname($varDir)),
-    'sonst ist das SMTP-Passwort ueber den Browser lesbar', fatal: false);
+$appDir = dirname($varDir);
+$webroot = webrootSegment($appDir);
+if ($webroot !== null) {
+    check('Anwendung liegt in einem Webverzeichnis', true,
+        "/$webroot/ -- im Browser nachpruefen", fatal: false);
+    echo "       -> Das ist nur dann ein Problem, wenn eine Domain auf /$webroot/ zeigt.\n";
+    echo "          Falls ja, waere config/config.php mit dem SMTP-Passwort abrufbar und\n";
+    echo "          nur durch die .htaccess geschuetzt. Bitte im Browser pruefen:\n";
+    echo '             https://<domain-die-auf-' . $webroot . '-zeigt>/'
+        . relativeToWebroot($appDir, $webroot) . "/config/config.php\n";
+    echo "          Muss 403 oder 404 liefern, niemals Inhalt.\n";
+    echo "          Zeigt keine Domain auf /$webroot/, ist nichts zu tun -- dann braucht\n";
+    echo "          tick.php aber eine eigene Subdomain (siehe README, Schritt 4).\n";
+} else {
+    check('Anwendung ausserhalb bekannter Webverzeichnisse', true, $appDir, fatal: false);
+}
 
 echo "\nNetzwerk\n";
 $http = new Client((string)$config->get('http.user_agent'), 15, 1, 0, respectRobots: false);
@@ -174,13 +188,36 @@ if ($failures === 0) {
 }
 exit($failures === 0 ? 0 : 1);
 
-function isDocumentRootPath(string $path): bool
+/**
+ * Liegt der Pfad in einem Webverzeichnis?
+ *
+ * $_SERVER['DOCUMENT_ROOT'] ist in der CLI nicht gesetzt -- eine Pruefung
+ * darauf meldet dort immer "alles in Ordnung", ohne etwas geprueft zu haben.
+ * Deshalb wird am Pfad selbst nach den ueblichen Webverzeichnis-Namen gesucht.
+ *
+ * @return string|null Name des Webverzeichnisses, oder null wenn keines gefunden
+ */
+function webrootSegment(string $path): ?string
 {
     $docRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
-    if ($docRoot === '') {
-        return false; // im CLI meist unbekannt -- dann nicht falsch alarmieren
+    if ($docRoot !== '') {
+        $real = realpath($path);
+        $root = realpath($docRoot);
+        if ($real !== false && $root !== false && str_starts_with($real, $root)) {
+            return basename($root);
+        }
     }
-    $real = realpath($path);
-    $root = realpath($docRoot);
-    return $real !== false && $root !== false && str_starts_with($real, $root);
+    foreach (['htdocs', 'public_html', 'www', 'httpdocs', 'web'] as $candidate) {
+        if (str_contains($path, '/' . $candidate . '/')) {
+            return $candidate;
+        }
+    }
+    return null;
+}
+
+/** Pfad relativ zum Webverzeichnis -- ergibt den URL-Teil zum Nachpruefen. */
+function relativeToWebroot(string $path, string $webroot): string
+{
+    $pos = strpos($path, '/' . $webroot . '/');
+    return $pos === false ? '' : trim(substr($path, $pos + strlen($webroot) + 2), '/');
 }

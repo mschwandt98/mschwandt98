@@ -92,6 +92,13 @@ function runOnce(Config $config, string $varDir): array
     }
 }
 
+// --- Header-Pruefung --------------------------------------------------------
+// Der Testserver antwortet nur mit 200, wenn Referer und Origin ankommen --
+// genau wie die echte API. Laeuft Lauf 1 durch, sind die Header unterwegs.
+echo "\nAPI-Header\n" . str_repeat('-', 54) . "\n";
+$bare = @file_get_contents($base . '/api/microservice/showings/cinemas/1391/films');
+ok($bare === false, 'nackter Request wird vom Testserver abgewiesen (401, wie echt)');
+
 // --- Lauf 1: Vorverkauf gesperrt (Embargo) --------------------------------
 echo "\nLauf 1 -- Embargo, Vorverkauf noch nicht offen\n" . str_repeat('-', 54) . "\n";
 scenario('embargo');
@@ -100,7 +107,8 @@ $r1 = runOnce($config, $varDir);
 ok($r1['ran'], 'Lauf wurde ausgefuehrt');
 ok(count($r1['screenings']) === 1, 'genau eine Vorstellung gefunden', 'gefunden: ' . count($r1['screenings']));
 ok(($r1['screenings'][0]->status ?? null) === Status::Dated, 'Zustand ist DATED');
-ok(($r1['screenings'][0]->source ?? null) === 'api', 'Quelle ist die API, nicht das HTML');
+ok(($r1['screenings'][0]->source ?? null) === 'api',
+    'Quelle ist die API -- die verlangten Header wurden also mitgeschickt');
 ok(($r1['screenings'][0]->presaleStartsAt ?? null) === '2026-10-14T10:00:00',
     'Vorverkaufsstart aus embargoEndDate');
 ok(($r1['screenings'][0]->startsAt ?? null) === '2026-11-07T12:00:00+01:00', 'echter Termin');

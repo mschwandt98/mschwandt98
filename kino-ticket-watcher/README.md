@@ -71,21 +71,20 @@ enden als No-op.
 
 ### 1. Dateien hochladen
 
-Die Anwendung gehört **außerhalb des Document Root** — `config/config.php`
-enthält das SMTP-Passwort und darf nie über den Browser lesbar sein.
-
 ```bash
-scp -r kino-ticket-watcher/ benutzer@dein-host:~/kino-watcher/
+scp -r kino-ticket-watcher/ benutzer@dein-host:~/htdocs/
 ```
 
-Wo der Document Root liegt, zeigt `pwd` nach dem SSH-Login. Liegt die Anwendung
-zwangsläufig darin, schützt die mitgelieferte `.htaccess` sie zusätzlich —
-**das danach im Browser wirklich nachprüfen.**
+Der Ort ist weniger kritisch als er klingt, **solange keine Domain direkt auf
+das Anwendungsverzeichnis zeigt** — siehe Schritt 4. Zeigt eine Domain darauf,
+wäre `config/config.php` mit dem SMTP-Passwort über den Browser erreichbar; dann
+greift nur noch die mitgelieferte `.htaccess`, und das ist im Browser
+nachzuprüfen, nicht zu hoffen.
 
 ### 2. Konfigurieren
 
 ```bash
-cd ~/kino-watcher
+cd ~/htdocs/kino-ticket-watcher
 cp config/config.example.php config/config.php
 php8.5 bin/selftest.php --secret        # erzeugt das tick_secret
 nano config/config.php                  # SMTP-Daten und Secret eintragen
@@ -94,7 +93,7 @@ nano config/config.php                  # SMTP-Daten und Secret eintragen
 ### 3. Selbsttest
 
 ```bash
-php8.5 bin/selftest.php                 # Umgebung, Netz, SMTP-Port
+php8.5 bin/selftest.php                 # Umgebung, Netz, API, SMTP-Port
 php8.5 bin/selftest.php --send-mail     # echte Testmail
 ```
 
@@ -105,28 +104,54 @@ Absender zur Kontaktliste hinzufügen und eine Regel auf das Betreff-Präfix
 Sperrt IONOS ausgehendes SMTP auf Port 587, `'encryption' => 'ssl'` mit Port 465
 probieren.
 
-### 4. `tick.php` in den Document Root
+**Antwortet die Showings-API mit 401 oder 403:**
 
 ```bash
-cp public/tick.php ~/pfad/zum/docroot/kino-tick.php
+php8.5 bin/probe-api.php
 ```
 
-Dann in der kopierten Datei `$appDir` auf das Anwendungsverzeichnis zeigen
-lassen, z. B. `$appDir = '/home/benutzer/kino-watcher';`
+Das Werkzeug probiert die Header-Kombinationen durch und gibt den fertigen
+`config.php`-Abschnitt aus. Vom Browser aus antwortet die API mit 200, einem
+nackten Request vom Server aus nicht — sie prüft die Herkunft des Requests.
 
-Prüfen — in dieser Reihenfolge, alle drei müssen stimmen:
+### 4. Subdomain auf `public/` zeigen lassen
+
+Für den Minutentakt braucht `tick.php` eine erreichbare URL. Im IONOS-Panel eine
+Subdomain anlegen (z. B. `kino.deine-domain.de`) und als Zielverzeichnis
+**`public/`** eintragen:
+
+```
+/homepages/<dein-pfad>/htdocs/kino-ticket-watcher/public
+```
+
+Das ist die saubere Lösung, weil `public/` **nur** `tick.php` enthält. Alles
+andere — `config/`, `src/`, `var/` — liegt dann oberhalb des ausgelieferten
+Verzeichnisses und ist durch die Ordnerstruktur selbst unerreichbar, nicht bloß
+durch eine `.htaccess`. An `tick.php` ist dabei nichts zu ändern: `$appDir`
+zeigt von `public/` aus automatisch auf das Anwendungsverzeichnis.
+
+Prüfen — alle drei müssen stimmen:
 
 | Aufruf | Erwartung |
 |---|---|
-| `https://deine-domain.de/kino-tick.php` | **404** |
-| `…/kino-tick.php?key=falsch` | **404** |
-| `…/kino-tick.php?key=<dein Secret>` | **200**, `ok …` oder `skipped` |
+| `https://kino.deine-domain.de/tick.php` | **404** |
+| `…/tick.php?key=falsch` | **404** |
+| `…/tick.php?key=<dein Secret>` | **200**, `ok …` oder `skipped` |
+
+Zusätzlich prüfen, dass das Anwendungsverzeichnis **nicht** erreichbar ist:
+`https://kino.deine-domain.de/../config/config.php` darf nichts liefern, und
+falls eine andere Domain auf `htdocs/` zeigt, auch
+`https://jene-domain.de/kino-ticket-watcher/config/config.php` nicht.
+
+*Ohne erreichbare URL* entfällt der externe Taktgeber. Der Watcher läuft dann
+nur über den IONOS-Cron alle 6 Stunden — funktionsfähig, aber im schlechtesten
+Fall 6 Stunden Verzug beim Vorverkaufsstart.
 
 ### 5. Externer Taktgeber
 
 Bei [cron-job.org](https://cron-job.org) einen Job anlegen:
 
-- URL: `https://deine-domain.de/kino-tick.php?key=<dein Secret>`
+- URL: `https://kino.deine-domain.de/tick.php?key=<dein Secret>`
 - Intervall: jede Minute
 - Fehlerbenachrichtigung an deine Mailadresse **aktivieren** — so erfährst du
   auch dann von einem Problem, wenn der Watcher selbst keine Mail mehr schickt
@@ -151,6 +176,7 @@ php8.5 bin/watch.php --status                            # aktueller Zustand
 php8.5 bin/watch.php --dry-run --verbose --ignore-schedule   # prüfen ohne Nebenwirkungen
 php8.5 bin/watch.php --force-notify                      # Testmail durch die echte Kette
 php8.5 bin/discover.php > discovery-report.txt           # API-Kontrolle
+php8.5 bin/probe-api.php                                 # Header-Diagnose bei 401/403
 ```
 
 Laufende Beobachtung:

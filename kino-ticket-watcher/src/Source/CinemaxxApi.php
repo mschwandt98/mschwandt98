@@ -31,9 +31,11 @@ use Kino\State\Store;
  */
 final class CinemaxxApi
 {
+    /** @param array<string,string> $headers Header, die die API verlangt (siehe Config) */
     public function __construct(
         private readonly Client $http,
         private readonly string $baseUrl,
+        private readonly array $headers = [],
     ) {
     }
 
@@ -60,13 +62,20 @@ final class CinemaxxApi
     public function fetch(string $cinemaId, Store $store, int $snapshotsToKeep, ?string $filmId = null): array
     {
         $url = $this->sessionsUrl($cinemaId, $filmId);
-        $res = $this->http->get($url, $store->httpCache($url));
+        $res = $this->http->get($url, $store->httpCache($url), $this->headers);
 
         if ($res->notModified) {
             return ['screenings' => [], 'films' => -1, 'error' => null, 'notModified' => true];
         }
         if (!$res->ok()) {
-            return ['screenings' => [], 'films' => 0, 'error' => $res->error ?? 'Abruf fehlgeschlagen', 'notModified' => false];
+            $hint = $res->status === 401 || $res->status === 403
+                ? ' -- der Endpunkt lehnt den Request ab. Bitte bin/probe-api.php laufen lassen,'
+                  . ' es ermittelt die noetigen Header.'
+                : '';
+            return [
+                'screenings' => [], 'films' => 0, 'notModified' => false,
+                'error' => ($res->error ?? 'Abruf fehlgeschlagen') . $hint,
+            ];
         }
 
         $store->saveSnapshot('api-cinema-' . $cinemaId . ($filmId !== null ? '-' . $filmId : ''), $res->body, $snapshotsToKeep);
