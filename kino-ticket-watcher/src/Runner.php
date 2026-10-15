@@ -46,6 +46,10 @@ final class Runner
         $watchdog  = new Watchdog($this->config->get('notify'));
         $now       = time();
 
+        // Vorigen Tick festhalten, BEVOR er ueberschrieben wird -- sonst
+        // vergleicht die Ausfallerkennung spaeter gegen sich selbst.
+        $previousTickAt = $this->store->meta('last_tick_at');
+        $previousTickAt = is_string($previousTickAt) ? $previousTickAt : null;
         $this->store->setMeta('last_tick_at', date('c', $now));
 
         if (!$ignoreSchedule && !$scheduler->isDue($this->store->meta('next_check_at'), $now)) {
@@ -161,7 +165,7 @@ final class Runner
             }
         }
 
-        $silence = $watchdog->checkTickSilence($this->store, $scheduler->isHotSeason($now), $now);
+        $silence = $watchdog->checkTickSilence($previousTickAt, $scheduler->isHotSeason($now), $now);
         if ($silence !== null) {
             $events[] = $silence;
         }

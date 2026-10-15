@@ -329,6 +329,20 @@ $events = $transitions->detect($previous, [], [], $during);
 T::same(Event::WARNING, $events[0]->type,
     'am Vorstellungstag gilt ein Verschwinden weiter als Warnung');
 
+T::group('Watchdog -- Ausfall des Taktgebers');
+$watchdog = new \Kino\Health\Watchdog((array)$config->get('notify'));
+$sept = strtotime('2026-09-20 12:00:00');
+
+T::ok($watchdog->checkTickSilence(date('c', $sept - 120), true, $sept) === null,
+    'zwei Minuten Abstand sind normal');
+$alert = $watchdog->checkTickSilence(date('c', $sept - 4 * 3600), true, $sept);
+T::ok($alert !== null, 'vier Stunden Stille loesen eine Warnung aus');
+T::ok(str_contains((string)$alert?->summary, '4 Stunden'), 'die Dauer steht in der Meldung');
+T::ok($watchdog->checkTickSilence(date('c', $sept - 4 * 3600), false, $sept) === null,
+    'ausserhalb der Saison wird nicht gewarnt');
+T::ok($watchdog->checkTickSilence(null, true, $sept) === null,
+    'beim ersten Lauf gibt es keinen Vorgaenger -- keine Warnung');
+
 // ----------------------------------------------------------------- Scheduler
 
 T::group('Scheduler');

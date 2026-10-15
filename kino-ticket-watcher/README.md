@@ -55,19 +55,31 @@ Für jede gefundene Vorstellung bestimmt der Watcher einen Zustand:
 
 Gemailt wird nur bei **Zustandswechseln**, nicht bei jedem Lauf.
 
-### Zwei Taktgeber
+### Der Taktgeber
 
-IONOS erlaubt Cronjobs frühestens alle 6 Stunden — zu grob für einen
-Vorverkaufsstart. Deshalb:
+Gibt es auf dem Server einen echten `crontab` (per SSH `crontab -e`), ist das
+die beste Lösung — ein Eintrag, kein Drittanbieter, kein öffentlicher Endpunkt:
 
-1. **cron-job.org** (kostenlos, Minutentakt) ruft `tick.php` auf. Das ist der
-   eigentliche Prüftakt.
-2. **IONOS-Cron alle 6 Stunden** ruft `bin/watch.php` auf. Er prüft ohnehin
-   und meldet zusätzlich, wenn Taktgeber 1 stumm geworden ist.
+```cron
+MAILTO=""
+*/2 * * * * /usr/bin/php8.5 /pfad/zum/kino-ticket-watcher/bin/watch.php --quiet >> /pfad/zum/kino-ticket-watcher/var/cron.log 2>&1
+```
 
-Die beiden sichern sich gegenseitig ab. Wie oft tatsächlich bei CinemaxX
-angefragt wird, entscheidet allein der Scheduler — die meisten Minutenticks
-enden als No-op.
+Der Cron klopft alle zwei Minuten an; ob daraus ein echter Prüflauf wird,
+entscheidet der Scheduler anhand von `next_check_at`. CinemaxX sieht also nie
+mehr Last als in der Tabelle unten, egal wie oft getickt wird.
+
+**Falls kein `crontab` verfügbar ist** (nur ein Web-Panel mit 6-Stunden-Limit):
+Dann ruft ein externer Dienst wie [cron-job.org](https://cron-job.org) die
+Datei `public/tick.php` per URL auf, minütlich und mit einem Secret geschützt.
+Der Panel-Cron läuft parallel als Sicherheitsnetz. Siehe Schritt 4 und 5 der
+Installation.
+
+Beide Wege führen in denselben `Runner` — die Prüflogik existiert genau einmal.
+
+**Ausfallerkennung:** Liegt der vorige Tick mehr als eine Stunde zurück, obwohl
+die heiße Phase läuft, kommt eine Warnmail. Damit fällt ein stillgelegter
+Cronjob auf, statt unbemerkt zu bleiben.
 
 ---
 
@@ -129,21 +141,52 @@ Das Werkzeug probiert die Kombinationen durch, benennt die *schädlichen* Header
 dampft die funktionierende Variante auf das Nötige ein und gibt den fertigen
 `config.php`-Abschnitt aus.
 
-### 4. Subdomain auf `public/` zeigen lassen
+### 4. Taktgeber einrichten
 
-Für den Minutentakt braucht `tick.php` eine erreichbare URL. Im IONOS-Panel eine
-Subdomain anlegen (z. B. `kino.deine-domain.de`) und als Zielverzeichnis
-**`public/`** eintragen:
+**Weg A — echter `crontab` (bevorzugt).** Per SSH prüfen:
+
+```bash
+crontab -l            # funktioniert der Befehl?
+which php8.5          # absoluter Pfad zum Binary
+pwd                   # Heimatverzeichnis = Basis für den Pfad unten
+```
+
+Dann `crontab -e` und eintragen:
+
+```cron
+MAILTO=""
+*/2 * * * * /usr/bin/php8.5 /homepages/<dein-pfad>/kino-ticket-watcher/bin/watch.php --quiet >> /homepages/<dein-pfad>/kino-ticket-watcher/var/cron.log 2>&1
+```
+
+`MAILTO=""` verhindert, dass der Cron-Daemon bei jedem Lauf eine Mail
+verschickt. `--quiet` sorgt dafür, dass nur Ereignisse und Fehler im Log
+landen, nicht die Routinezeilen — sonst wächst die Datei um Tausende Zeilen
+pro Tag.
+
+Dass es wirklich läuft, zeigt sich nach etwa zehn Minuten:
+
+```bash
+php8.5 bin/watch.php --status      # Zeile "Letzter Lauf" muss sich bewegen
+cat var/cron.log                   # bei --quiet normalerweise leer
+```
+
+Bewegt sich nichts, wird der Crontab nicht ausgeführt — manche Hoster erlauben
+`crontab -e`, starten die Einträge aber nicht. Dann Weg B.
+
+**Weg B — externer Dienst plus `tick.php`.** Nur nötig, wenn Weg A nicht geht.
+
+Erst eine Subdomain im Hoster-Panel anlegen (z. B. `kino.deine-domain.de`) und
+als Zielverzeichnis **`public/`** eintragen:
 
 ```
-/homepages/<dein-pfad>/htdocs/kino-ticket-watcher/public
+/homepages/<dein-pfad>/kino-ticket-watcher/public
 ```
 
 Das ist die saubere Lösung, weil `public/` **nur** `tick.php` enthält. Alles
-andere — `config/`, `src/`, `var/` — liegt dann oberhalb des ausgelieferten
-Verzeichnisses und ist durch die Ordnerstruktur selbst unerreichbar, nicht bloß
-durch eine `.htaccess`. An `tick.php` ist dabei nichts zu ändern: `$appDir`
-zeigt von `public/` aus automatisch auf das Anwendungsverzeichnis.
+andere — `config/`, `src/`, `var/` — liegt oberhalb des ausgelieferten
+Verzeichnisses und ist durch die Ordnerstruktur unerreichbar, nicht bloß durch
+eine `.htaccess`. An `tick.php` ist nichts zu ändern: `$appDir` zeigt von
+`public/` aus automatisch auf das Anwendungsverzeichnis.
 
 Prüfen — alle drei müssen stimmen:
 
@@ -159,34 +202,27 @@ dem übergeordneten Anwendungsverzeichnis mit an. Dagegen liegt in `public/`
 eine Gegen-Regel (`Require all granted`); fehlt sie oder greift sie nicht, muss
 `AllowOverride` für das Verzeichnis aktiv sein.
 
-Zusätzlich prüfen, dass das Anwendungsverzeichnis **nicht** erreichbar ist:
-`https://kino.deine-domain.de/../config/config.php` darf nichts liefern, und
-falls eine andere Domain auf `htdocs/` zeigt, auch
-`https://jene-domain.de/kino-ticket-watcher/config/config.php` nicht.
-
-*Ohne erreichbare URL* entfällt der externe Taktgeber. Der Watcher läuft dann
-nur über den IONOS-Cron alle 6 Stunden — funktionsfähig, aber im schlechtesten
-Fall 6 Stunden Verzug beim Vorverkaufsstart.
-
-### 5. Externer Taktgeber
-
-Bei [cron-job.org](https://cron-job.org) einen Job anlegen:
+Dann bei [cron-job.org](https://cron-job.org) einen Job anlegen:
 
 - URL: `https://kino.deine-domain.de/tick.php?key=<dein Secret>`
 - Intervall: jede Minute
-- Fehlerbenachrichtigung an deine Mailadresse **aktivieren** — so erfährst du
-  auch dann von einem Problem, wenn der Watcher selbst keine Mail mehr schickt
+- Fehlerbenachrichtigung an deine Mailadresse **aktivieren**
 
-### 6. IONOS-Cron
+### 5. Sicherheitsnetz (optional)
 
-Im IONOS-Panel einen Cronjob alle 6 Stunden anlegen:
+Erlaubt das Hoster-Panel nur einen 6-Stunden-Cron per HTTP GET, lohnt er sich
+als zweiter, unabhängiger Taktgeber: URL wie oben, Intervall 6 Stunden. Er
+prüft selbst und meldet, wenn der eigentliche Taktgeber stumm geworden ist.
 
-```
-/usr/bin/php8.5 /home/benutzer/kino-watcher/bin/watch.php
-```
+Nutzt du Weg A, ist das der sinnvollste Einsatz dieses Panel-Crons — die beiden
+Mechanismen bewachen sich dann gegenseitig, ohne dass ein Drittanbieter nötig
+ist.
 
-Der genaue Pfad zum Binary kommt aus `ls /usr/bin/php*`. Lässt das Panel nur
-eine URL zu, stattdessen dieselbe `tick.php`-URL eintragen.
+### 6. Posteingangsregel
+
+Regel auf Betreff enthält `[KINO-ALARM]` → als wichtig markieren und
+Push-Benachrichtigung aktivieren. Ohne diesen Schritt liegt der Alarm im
+Posteingang, während der Vorverkauf läuft.
 
 ---
 
@@ -270,7 +306,7 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ## Tests
 
 ```bash
-php tests/run.php           # 130 Unit-Tests, ohne Netzzugriff
+php tests/run.php           # 135 Unit-Tests, ohne Netzzugriff
 php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
 php tests/smoke.php         # 14 Prüfungen der Entrypoints selbst
 ```
@@ -308,7 +344,8 @@ findet, ist schlimmer als gar keiner. Dagegen:
 - **`304`-Schutz** — antwortet die API „unverändert", wird der gespeicherte
   Zustand nicht angetastet. Sonst würde jede Vorstellung als „verschwunden"
   gemeldet.
-- **Tick-Überwachung** — meldet, wenn der externe Taktgeber stumm wird.
+- **Tick-Überwachung** — meldet, wenn der Taktgeber stumm wird. Liegt der
+  *vorige* Tick über eine Stunde zurück, kommt eine Warnmail.
 - **Lebenszeichen-Mail** — wöchentlich ab September. Beweist, dass die ganze
   Kette inklusive SMTP-Zustellung funktioniert.
 - **Snapshots + `events.jsonl`** — die Grundlage, um eine Fehlfunktion in

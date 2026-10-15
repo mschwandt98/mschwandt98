@@ -32,8 +32,9 @@ use Kino\Runner;
 use Kino\State\Store;
 
 $options = getopt('', [
-    'dry-run', 'verbose', 'force-notify', 'ignore-schedule', 'status', 'help', 'config::',
+    'dry-run', 'verbose', 'quiet', 'force-notify', 'ignore-schedule', 'status', 'help', 'config::',
 ]);
+$quiet = isset($options['quiet']) && !isset($options['verbose']);
 
 if (isset($options['help'])) {
     Output::line(<<<TXT
@@ -41,6 +42,7 @@ if (isset($options['help'])) {
 
       --dry-run           pruefen, aber nichts speichern und keine Mail senden
       --verbose           ausfuehrliche Ausgabe
+      --quiet             nur Ereignisse und Fehler ausgeben -- fuer den Cronjob
       --ignore-schedule   pruefen, auch wenn noch nicht faellig
       --force-notify      Testmail senden, auch ohne Aenderung
       --status            aktuellen Zustand anzeigen und beenden
@@ -61,7 +63,9 @@ try {
     }
 
     if (!$store->acquireLock()) {
-        Output::line("Ein anderer Lauf ist bereits aktiv -- dieser Tick wird uebersprungen.\n");
+        if (!$quiet) {
+            Output::line("Ein anderer Lauf ist bereits aktiv -- dieser Tick wird uebersprungen.\n");
+        }
         exit(0);
     }
 
@@ -78,22 +82,30 @@ try {
     );
 
     if (!$result['ran']) {
-        Output::line($result['reason'] . "\n");
+        if (!$quiet) {
+            Output::line($result['reason'] . "\n");
+        }
         exit(0);
     }
 
-    Output::line(sprintf(
-        "Geprueft: %d Treffer, %d Ereignis(se), %d Fehler.\n",
-        count($result['screenings']),
-        count($result['events']),
-        count($result['errors'])
-    ));
-    foreach ($result['screenings'] as $screening) {
-        Output::line(sprintf("  [%s] %s -- %s\n",
-            $screening->status->value, $screening->title, $screening->when()));
-    }
-    foreach ($result['events'] as $event) {
-        Output::line('  -> ' . $event->summary . "\n");
+    // Im Cron-Betrieb nur melden, wenn es etwas zu melden gibt. Bei einem
+    // Takt von zwei Minuten liefe die Logdatei sonst mit Routinezeilen voll.
+    $worthReporting = $result['events'] !== [] || $result['errors'] !== [];
+    if (!$quiet || $worthReporting) {
+        Output::line(sprintf(
+            "%s Geprueft: %d Treffer, %d Ereignis(se), %d Fehler.\n",
+            date('Y-m-d H:i:s'),
+            count($result['screenings']),
+            count($result['events']),
+            count($result['errors'])
+        ));
+        foreach ($result['screenings'] as $screening) {
+            Output::line(sprintf("  [%s] %s -- %s\n",
+                $screening->status->value, $screening->title, $screening->when()));
+        }
+        foreach ($result['events'] as $event) {
+            Output::line('  -> ' . $event->summary . "\n");
+        }
     }
     foreach ($result['errors'] as $error) {
         Output::error('  !! ' . $error . "\n");
