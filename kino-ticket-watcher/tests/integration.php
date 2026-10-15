@@ -108,7 +108,13 @@ ok($r1['ran'], 'Lauf wurde ausgefuehrt');
 ok(count($r1['screenings']) === 1, 'genau eine Vorstellung gefunden', 'gefunden: ' . count($r1['screenings']));
 ok(($r1['screenings'][0]->status ?? null) === Status::Dated, 'Zustand ist DATED');
 ok(($r1['screenings'][0]->source ?? null) === 'api',
-    'Quelle ist die API -- die verlangten Header wurden also mitgeschickt');
+    'Quelle ist die API -- Header und Sitzung wurden also akzeptiert');
+
+// Der erste Lauf startet ohne Cookies. Die API lehnt ab, der Watcher laedt
+// daraufhin die Programmseite nach und wiederholt den Abruf.
+$state = json_decode((string)file_get_contents("$varDir/state.json"), true);
+ok(($state['meta']['cookies']['127.0.0.1']['kinosession'] ?? null) === 'abc123',
+    'Sitzung wurde selbst nachgeholt und im Zustand gesichert');
 ok(($r1['screenings'][0]->presaleStartsAt ?? null) === '2026-10-14T10:00:00',
     'Vorverkaufsstart aus embargoEndDate');
 ok(($r1['screenings'][0]->startsAt ?? null) === '2026-11-07T12:00:00+01:00', 'echter Termin');
@@ -128,11 +134,19 @@ ok(!in_array('Der Hobbit: Smaugs Einoede', $titles, true),
 ok($r1['errors'] !== [], 'fehlgeschlagener Mailversand wird als Fehler gemeldet');
 ok(str_contains(implode(' ', $r1['errors']), 'SMTP'), 'Fehlermeldung nennt SMTP');
 
-// --- Lauf 2: unveraendert ---------------------------------------------------
+// --- Lauf 2: unveraendert, und jetzt gezielt gefragt ------------------------
 echo "\nLauf 2 -- unveraendert\n" . str_repeat('-', 54) . "\n";
+@unlink(__DIR__ . '/site/last-query.txt');
 $r2 = runOnce($config, $varDir);
 ok($r2['events'] === [], 'keine Aenderung -> kein Ereignis, keine Mail',
     'Ereignisse: ' . count($r2['events']));
+
+// Nach dem ersten Fund ist die Film-Kennung bekannt. Ab jetzt darf nicht mehr
+// das ganze Kinoprogramm geladen werden -- das waere ein halbes Megabyte pro
+// Tick.
+$lastQuery = trim(@file_get_contents(__DIR__ . '/site/last-query.txt') ?: '');
+ok(str_contains($lastQuery, 'filmId=HO00001617'),
+    'zweiter Abruf fragt gezielt nach der Film-Kennung', 'Query: ' . $lastQuery);
 
 // --- Lauf 3: Vorverkauf startet --------------------------------------------
 echo "\nLauf 3 -- Vorverkauf ist offen\n" . str_repeat('-', 54) . "\n";

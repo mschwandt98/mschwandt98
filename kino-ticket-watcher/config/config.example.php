@@ -69,23 +69,26 @@ return [
         // Kontaktadresse eintragen: So kann CinemaxX sich melden, statt zu sperren.
         'user_agent' => 'KinoTicketWatcher/1.0 (persoenlicher Benachrichtigungs-Watcher; du@example.com)',
 
-        // Die Showings-API prueft die Herkunft des Requests und antwortet einem
-        // nackten Abruf mit 401. Diese Header sind die Vorgabe; welche
-        // Kombination tatsaechlich noetig ist, ermittelt:
+        // Die Showings-API antwortet einem nackten Abruf mit 401. Noetig sind
+        // diese Header UND die Cookies der Programmseite -- gemessen mit
+        // bin/probe-api.php auf einem IONOS-Webspace.
+        //
+        // Die Cookies holt sich der Watcher selbst: Er bewahrt sie im Zustand
+        // auf und laedt die Programmseite nur dann nach, wenn die API mit 401
+        // antwortet. Dafuer ist hier nichts einzustellen.
+        //
+        // Antwortet die API trotzdem mit 401 oder 403, ermittelt
         //
         //     php8.5 bin/probe-api.php
         //
-        // Das Werkzeug gibt den passenden Abschnitt zum Einsetzen aus.
+        // die noetige Kombination und gibt den Abschnitt zum Einsetzen aus.
         // {base_url} und {program_url} werden automatisch ersetzt.
         'api_headers' => [
             'Accept'           => 'application/json, text/plain, */*',
             'Referer'          => '{program_url}',
             'Origin'           => '{base_url}',
             'X-Requested-With' => 'XMLHttpRequest',
+            'Accept-Language'  => 'de-DE,de;q=0.9',
         ],
-
-        // Auf true setzen, wenn probe-api.php meldet, dass Cookies noetig sind:
-        // dann wird vor dem API-Abruf einmal die Programmseite geladen.
-        'warmup' => false,
     ],
 ];

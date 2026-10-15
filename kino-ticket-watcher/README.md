@@ -17,10 +17,14 @@ GET /api/microservice/showings/cinemas/1391/films
 ```
 
 `1391` ist CinemaxX Magdeburg. Ein einziger Request liefert alle Filme des Kinos
-mit ihren Vorstellungen — ohne Authentifizierung, als JSON, mit `Last-Modified`
-für bedingte Requests. Gefiltert wird über die Suchmuster auf den Filmtitel, nicht
-über eine feste URL: Der Slug lautet nächstes Jahr anders, die API-Abfrage bleibt
-gleich.
+mit ihren Vorstellungen, als JSON, mit `Last-Modified` für bedingte Requests.
+Gefiltert wird über die Suchmuster auf den Filmtitel, nicht über eine feste URL:
+Der Slug lautet nächstes Jahr anders, die API-Abfrage bleibt gleich.
+
+Dieser Abruf ist rund **0,5 MB** groß. Im Minutentakt wäre das unhöflich, deshalb
+läuft er nur alle 30 Minuten. Ist die Film-Kennung einmal bekannt
+(`filmId=HO00001617`), fragt der Watcher dazwischen gezielt danach — wenige
+Kilobyte statt einem halben Megabyte.
 
 Entscheidend ist, dass die API die Frage direkt beantwortet, statt sie raten zu
 lassen:
@@ -104,15 +108,20 @@ Absender zur Kontaktliste hinzufügen und eine Regel auf das Betreff-Präfix
 Sperrt IONOS ausgehendes SMTP auf Port 587, `'encryption' => 'ssl'` mit Port 465
 probieren.
 
-**Antwortet die Showings-API mit 401 oder 403:**
+**Zur API-Authentifizierung:** Einem nackten Request antwortet die API mit
+`401`. Nötig sind die Header aus `http.api_headers` **und** die Cookies der
+Programmseite. Beides ist eingebaut: Der Watcher bewahrt die Cookies im Zustand
+auf und lädt die Programmseite nur dann nach, wenn die API ablehnt. Dafür ist
+nichts einzustellen.
+
+Antwortet die API trotzdem mit `401` oder `403`:
 
 ```bash
 php8.5 bin/probe-api.php
 ```
 
-Das Werkzeug probiert die Header-Kombinationen durch und gibt den fertigen
-`config.php`-Abschnitt aus. Vom Browser aus antwortet die API mit 200, einem
-nackten Request vom Server aus nicht — sie prüft die Herkunft des Requests.
+Das Werkzeug probiert die Kombinationen durch, dampft die funktionierende auf
+das Nötige ein und gibt den fertigen `config.php`-Abschnitt aus.
 
 ### 4. Subdomain auf `public/` zeigen lassen
 
@@ -191,13 +200,15 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ## Tests
 
 ```bash
-php tests/run.php           # 101 Unit-Tests, ohne Netzzugriff
-php tests/integration.php   # 26 End-to-End-Tests gegen einen lokalen Testserver
+php tests/run.php           # 103 Unit-Tests, ohne Netzzugriff
+php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
 ```
 
 Der Integrationstest startet einen PHP-Webserver, der die API unter ihrem echten
-Pfad nachbildet, und spielt den vollständigen Ablauf durch: Embargo → buchbar →
-ausverkauft, dazu den API-Ausfall mit Rückfall auf HTML und den `304`-Fall.
+Pfad nachbildet — inklusive der `401`-Antwort, solange Header oder Sitzungscookie
+fehlen. Er spielt den vollständigen Ablauf durch: Embargo → buchbar →
+ausverkauft, dazu das selbständige Nachholen der Sitzung, die gezielte Abfrage
+per Film-Kennung, den API-Ausfall mit Rückfall auf HTML und den `304`-Fall.
 
 **Die API-Fixtures sind echte Antworten** aus einer HAR-Aufzeichnung der Seite,
 nicht erfunden.

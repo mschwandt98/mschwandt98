@@ -18,11 +18,17 @@ $film = '/kinoprogramm/magdeburg/film/der-herr-der-ringe-triple-extended-version
 $scenario = trim(@file_get_contents(__DIR__ . '/current.txt') ?: 'embargo');
 
 if ($path === '/api/microservice/showings/cinemas/1391/films') {
+    // Letzte Abfrage mitschreiben, damit der Test pruefen kann, ob gezielt
+    // nach der Film-Kennung gefragt wurde.
+    @file_put_contents(__DIR__ . '/last-query.txt', (string)($_SERVER['QUERY_STRING'] ?? ''));
+
     // Die echte API antwortet einem nackten Request mit 401 und prueft die
     // Herkunft. Das wird hier nachgebildet, damit der Test beweist, dass der
     // Runner die noetigen Header wirklich mitschickt.
+    // Die echte API verlangt zusaetzlich die Cookies der Programmseite.
+    $hasSession = ($_COOKIE['kinosession'] ?? '') === 'abc123';
     if ($scenario !== 'noauthcheck'
-        && (empty($_SERVER['HTTP_REFERER']) || empty($_SERVER['HTTP_ORIGIN']))) {
+        && (empty($_SERVER['HTTP_REFERER']) || empty($_SERVER['HTTP_ORIGIN']) || !$hasSession)) {
         http_response_code(401);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Unauthorized';
@@ -66,6 +72,8 @@ switch ($path) {
         return true;
 
     case '/kinoprogramm/magdeburg':
+        // Wie die echte Seite: Hier wird die Sitzung gesetzt, die die API verlangt.
+        header('Set-Cookie: kinosession=abc123; Path=/');
         readfile($fixtures . '/program.html');
         return true;
 

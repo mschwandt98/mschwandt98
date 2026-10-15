@@ -120,8 +120,9 @@ final class CinemaxxApi
     /** @return list<Screening> */
     private function mapFilm(array $film): array
     {
-        $title = (string)($film['filmTitle'] ?? '');
-        $url   = $this->absolute((string)($film['filmUrl'] ?? ''));
+        $title  = (string)($film['filmTitle'] ?? '');
+        $url    = $this->absolute((string)($film['filmUrl'] ?? ''));
+        $filmId = $this->nonEmpty($film['filmId'] ?? null);
         // embargoEndDate ist der Zeitpunkt, ab dem gebucht werden kann --
         // die verlaesslichste Vorwarnung, die es gibt.
         $presale = $this->nonEmpty($film['embargoEndDate'] ?? null);
@@ -130,7 +131,7 @@ final class CinemaxxApi
         foreach ($film['showingGroups'] ?? [] as $group) {
             foreach ($group['sessions'] ?? [] as $session) {
                 if (is_array($session)) {
-                    $sessions[] = $this->mapSession($film, $session, $title, $url, $presale);
+                    $sessions[] = $this->mapSession($session, $title, $url, $presale, $filmId);
                 }
             }
         }
@@ -148,11 +149,17 @@ final class CinemaxxApi
             startsAt:        $this->nonEmpty($film['releaseDate'] ?? null),
             presaleStartsAt: $presale,
             source:          'api',
+            filmId:          $filmId,
         )];
     }
 
-    private function mapSession(array $film, array $session, string $title, string $url, ?string $presale): Screening
-    {
+    private function mapSession(
+        array $session,
+        string $title,
+        string $url,
+        ?string $presale,
+        ?string $filmId,
+    ): Screening {
         $soldOut   = (bool)($session['isSoldOut'] ?? false);
         $bookable  = (bool)($session['isBookingAvailable'] ?? false);
         $bookingUrl = $this->nonEmpty($session['bookingUrl'] ?? null);
@@ -181,6 +188,7 @@ final class CinemaxxApi
             bookingUrl:      $bookingUrl !== null ? $this->absolute($bookingUrl) : $url,
             source:          'api',
             note:            $note !== '' ? $note : null,
+            filmId:          $filmId,
         );
     }
 

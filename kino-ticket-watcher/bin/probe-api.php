@@ -99,14 +99,66 @@ if ($winners === []) {
 $label = array_key_first($winners);
 [$headers, $ua, $useCookies] = $winners[$label];
 
-echo "Es funktioniert: $label\n\n";
+echo "Es funktioniert: $label\n";
+
+// Zweite Runde: Dass eine Kombination funktioniert, heisst nicht, dass jeder
+// ihrer Teile noetig ist. Besonders beim User-Agent lohnt die Pruefung -- mit
+// einem Browser-UA geht die Kontaktadresse verloren, und die ist der
+// Unterschied zwischen einem hoeflichen Werkzeug und einem anonymen Bot.
+echo "\nZweite Runde: was davon ist wirklich noetig?\n";
+echo str_repeat('-', 72), "\n";
+
+if ($ua === $browserUa) {
+    $res = request($apiUrl, $headers, $ownUa, $cookieJar, useCookies: $useCookies);
+    $keepsOwnUa = $res['status'] === 200;
+    printf("[%s] %-36s HTTP %-3d  %s\n",
+        $keepsOwnUa ? ' ok ' : 'FEHL',
+        'eigener User-Agent statt Chrome',
+        $res['status'],
+        $keepsOwnUa ? 'Kontaktadresse bleibt erhalten' : 'Browser-UA ist noetig');
+    if ($keepsOwnUa) {
+        $ua = $ownUa;
+    }
+    sleep(2);
+}
+
+// Header einzeln weglassen und sehen, ob es noch geht.
+foreach (array_keys($headers) as $name) {
+    $reduced = $headers;
+    unset($reduced[$name]);
+    $res = request($apiUrl, $reduced, $ua, $cookieJar, useCookies: $useCookies);
+    $stillOk = $res['status'] === 200;
+    printf("[%s] ohne %-31s HTTP %-3d  %s\n",
+        $stillOk ? ' -- ' : ' ok ',
+        $name,
+        $res['status'],
+        $stillOk ? 'ueberfluessig, wird weggelassen' : 'noetig');
+    if ($stillOk) {
+        $headers = $reduced;
+    }
+    sleep(2);
+}
+
+if ($useCookies) {
+    $res = request($apiUrl, $headers, $ua, $cookieJar, useCookies: false);
+    if ($res['status'] === 200) {
+        echo "[ -- ] ohne Cookies                          HTTP 200  ueberfluessig\n";
+        $useCookies = false;
+    } else {
+        printf("[ ok ] ohne Cookies                          HTTP %-3d  noetig\n", $res['status']);
+    }
+}
+
+echo "\n", str_repeat('=', 72), "\n";
 echo "Bitte in config/config.php eintragen:\n\n";
 echo "    'http' => [\n";
 if ($ua === $browserUa) {
     echo "        'user_agent' => '" . addslashes($ua) . "',\n";
-    echo "        // Hinweis: Der Endpunkt verlangt einen Browser-User-Agent.\n";
-    echo "        // Die Kontaktadresse geht damit verloren -- unschoen, aber\n";
-    echo "        // ohne ihn antwortet die API nicht.\n";
+    echo "        // Der Endpunkt verlangt einen Browser-User-Agent -- ohne ihn\n";
+    echo "        // antwortet er nicht. Die Kontaktadresse geht damit verloren.\n";
+} else {
+    echo "        // user_agent unveraendert lassen: der eigene genuegt,\n";
+    echo "        // die Kontaktadresse bleibt also drin.\n";
 }
 echo "        'api_headers' => [\n";
 foreach ($headers as $name => $value) {
@@ -119,9 +171,7 @@ if ($useCookies) {
 }
 echo "    ],\n";
 
-if (count($winners) > 1) {
-    echo "\nEs funktionieren mehrere Varianten; oben steht die sparsamste.\n";
-}
+echo "\nDas ist die sparsamste Variante, die noch funktioniert.\n";
 exit(0);
 
 /**
@@ -164,7 +214,11 @@ function request(
     $body   = curl_exec($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $err    = curl_error($ch);
-    curl_close($ch);
+
+    // Seit PHP 8 ist curl_close() eine Leeroperation; die Cookie-Datei wird
+    // erst beim Freigeben des Handles geschrieben. Ohne dieses unset() liest
+    // man eine noch leere Datei und meldet faelschlich "keine Cookies".
+    unset($ch);
 
     $cookies = 0;
     if ($writeCookies && is_file($cookieJar)) {

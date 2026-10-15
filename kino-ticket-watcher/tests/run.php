@@ -223,6 +223,10 @@ T::ok($matcher->matches($bookable[0]->title, $bookable[0]->url),
 T::ok($matcher->inDateWindow($bookable[0]->startsAt),
     'der echte Termin (7. November) liegt im Zeitfenster');
 
+T::same('HO00001617', $bookable[0]->filmId, 'Film-Kennung wird uebernommen');
+T::ok(str_contains($api->sessionsUrl('1391', $bookable[0]->filmId), 'filmId=HO00001617'),
+    'mit der Kennung kann gezielt gefragt werden statt das ganze Kino zu laden');
+
 // --------------------------------------------------------------- __NEXT_DATA__
 
 T::group('__NEXT_DATA__');

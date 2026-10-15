@@ -58,6 +58,7 @@ final class Runner
         }
 
         $http    = $this->httpClient();
+        $http->setCookies((array)$this->store->meta('cookies', []));
         $matcher = $this->matcher();
         $keep    = (int)$this->config->get('snapshots_to_keep');
         $errors  = [];
@@ -71,27 +72,55 @@ final class Runner
         $filmCount    = 0;
         $haveFreshData = false;
         $usedFallback = false;
+        $isFullScan   = false;
 
         // --- Quelle 1: Showings-API ------------------------------------------
         if ($cinemaId !== null) {
-            if ((bool)$this->config->get('http.warmup', false)) {
-                // Einmal die Programmseite laden, damit deren Cookies im
-                // Client liegen, bevor die API gefragt wird.
-                $http->warmup($this->programUrl());
-            }
             $api = new CinemaxxApi(
                 $http,
                 (string)$this->config->get('cinema.base_url'),
                 $this->apiHeaders(),
             );
-            $result = $api->fetch($cinemaId, $this->store, $keep);
 
-            if ($result['notModified']) {
+            // Der Abruf fuer das ganze Kino ist rund 0,5 MB gross -- im
+            // Minutentakt waere das unhoeflich und ein guter Weg, gesperrt zu
+            // werden. Ist die Film-Kennung bekannt, filtert die API darauf und
+            // liefert wenige Kilobyte. Der vollstaendige Durchlauf laeuft nur
+            // gelegentlich, um neue Filme ueberhaupt zu finden.
+            $knownFilmIds = $this->knownFilmIds();
+            $fullScan = $knownFilmIds === [] || $this->fullScanDue($now);
+            $isFullScan = $fullScan;
+
+            if ($fullScan) {
+                $this->store->setMeta('last_full_scan_at', date('c', $now));
+                $result = $this->fetchApi($api, $http, $cinemaId, null, $keep);
+            } else {
+                $result = ['screenings' => [], 'films' => 0, 'error' => null, 'notModified' => true];
+                foreach ($knownFilmIds as $knownFilmId) {
+                    $one = $this->fetchApi($api, $http, $cinemaId, $knownFilmId, $keep);
+                    if ($one['error'] !== null) {
+                        // notModified ausdruecklich zuruecksetzen: Ein Fehler
+                        // darf nicht als "unveraendert" durchgehen, sonst
+                        // greift die Rueckfallebene nie.
+                        $result['error'] = $one['error'];
+                        $result['notModified'] = false;
+                        break;
+                    }
+                    if (!$one['notModified']) {
+                        $result['notModified'] = false;
+                        $result['films'] += $one['films'];
+                        array_push($result['screenings'], ...$one['screenings']);
+                    }
+                }
+                $this->log(sprintf('gefilterter Abruf fuer %s', implode(', ', $knownFilmIds)));
+            }
+
+            if ($result['error'] !== null) {
+                $errors[] = 'API: ' . $result['error'];
+            } elseif ($result['notModified']) {
                 // 304: Es gibt keine neuen Daten. Jetzt zu vergleichen hiesse,
                 // alle bekannten Vorstellungen als verschwunden zu melden.
                 $this->log('API meldet unveraendert (304)');
-            } elseif ($result['error'] !== null) {
-                $errors[] = 'API: ' . $result['error'];
             } else {
                 $haveFreshData = true;
                 $filmCount = $result['films'];
@@ -124,9 +153,11 @@ final class Runner
             $lastNotified = (array)$this->store->meta('notified_at', []);
             $events = $transitions->detect($this->store->screenings(), $screenings, $lastNotified, $now);
 
-            $canary = $watchdog->checkCanary($filmCount, $this->store);
-            if ($canary !== null) {
-                $events[] = $canary;
+            if ($isFullScan) {
+                $canary = $watchdog->checkCanary($filmCount, $this->store);
+                if ($canary !== null) {
+                    $events[] = $canary;
+                }
             }
         }
 
@@ -154,6 +185,7 @@ final class Runner
             );
         }
 
+        $this->store->setMeta('cookies', $http->cookies());
         $this->persist($screenings, $events, $errors, $scheduler, $now, $haveFreshData);
 
         if ($events !== []) {
@@ -172,6 +204,44 @@ final class Runner
             'screenings' => $screenings,
             'errors' => $errors,
         ];
+    }
+
+    /**
+     * API-Abruf mit Nachholen der Sitzung.
+     *
+     * Die Showings-API antwortet ohne die Cookies der Programmseite mit 401.
+     * Die Cookies liegen im Zustand und gelten mehrere Tage; laufen sie ab,
+     * wird die Programmseite einmal nachgeladen und der Abruf wiederholt.
+     * Das kostet im Normalfall nichts und heilt sich von selbst.
+     *
+     * @return array{screenings:list<\Kino\Model\Screening>,films:int,error:?string,notModified:bool}
+     */
+    private function fetchApi(
+        CinemaxxApi $api,
+        Client $http,
+        string $cinemaId,
+        ?string $filmId,
+        int $keep,
+    ): array {
+        $result = $api->fetch($cinemaId, $this->store, $keep, $filmId);
+        if ($result['error'] === null || !$this->looksLikeAuthFailure($result['error'])) {
+            return $result;
+        }
+
+        $this->log('API lehnt ab -- Programmseite wird fuer eine frische Sitzung geladen');
+        if (!$http->warmup($this->programUrl())) {
+            return $result;
+        }
+        $retry = $api->fetch($cinemaId, $this->store, $keep, $filmId);
+        if ($retry['error'] === null) {
+            $this->log('nach dem Nachladen erfolgreich');
+        }
+        return $retry;
+    }
+
+    private function looksLikeAuthFailure(string $error): bool
+    {
+        return str_contains($error, '401') || str_contains($error, '403');
     }
 
     private function httpClient(): Client
@@ -339,6 +409,34 @@ final class Runner
             Status::PageExists => 2,
             Status::Absent     => 1,
         };
+    }
+
+    /**
+     * Film-Kennungen der bereits bekannten Vorstellungen. Damit kann die API
+     * gezielt gefragt werden, statt das ganze Kinoprogramm zu laden.
+     *
+     * @return list<string>
+     */
+    private function knownFilmIds(): array
+    {
+        $ids = [];
+        foreach ($this->store->screenings() as $row) {
+            $id = $row['film_id'] ?? null;
+            if (is_string($id) && $id !== '') {
+                $ids[$id] = true;
+            }
+        }
+        return array_keys($ids);
+    }
+
+    private function fullScanDue(int $now): bool
+    {
+        $last = $this->store->meta('last_full_scan_at');
+        if (!is_string($last)) {
+            return true;
+        }
+        $ts = strtotime($last);
+        return $ts === false || ($now - $ts) >= (int)$this->config->get('schedule.full_scan_seconds', 1800);
     }
 
     private function crosscheckDue(int $now): bool

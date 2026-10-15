@@ -180,6 +180,34 @@ final class Client
         return $this->get($url)->ok();
     }
 
+    /**
+     * Cookies aus einem frueheren Lauf uebernehmen.
+     *
+     * Jeder Cron-Lauf ist ein eigener Prozess; ohne das muesste vor jedem
+     * Abruf die Programmseite geladen werden -- 174 KB, nur um ein Cookie zu
+     * bekommen. Gespeichert im Zustand reicht ein Abruf alle paar Tage.
+     *
+     * @param array<string,array<string,string>> $cookies
+     */
+    public function setCookies(array $cookies): void
+    {
+        foreach ($cookies as $host => $jar) {
+            if (is_string($host) && is_array($jar)) {
+                foreach ($jar as $name => $value) {
+                    if (is_string($name) && is_scalar($value)) {
+                        $this->cookies[$host][$name] = (string)$value;
+                    }
+                }
+            }
+        }
+    }
+
+    /** @return array<string,array<string,string>> */
+    public function cookies(): array
+    {
+        return $this->cookies;
+    }
+
     private function throttle(string $url): void
     {
         $host = parse_url($url, PHP_URL_HOST) ?: 'default';

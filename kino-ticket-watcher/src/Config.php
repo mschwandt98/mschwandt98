@@ -103,20 +103,17 @@ final class Config
                 'respect_robots' => true,
                 'user_agent' => 'KinoTicketWatcher/1.0 (persoenlicher Benachrichtigungs-Watcher)',
                 // Die Showings-API antwortet einem nackten Request mit 401.
-                // Sie erwartet dieselben Header, die der Browser mitschickt --
-                // die Antwort traegt "Vary: Origin", der Endpunkt prueft also
-                // die Herkunft. Welche Kombination tatsaechlich noetig ist,
-                // zeigt bin/probe-api.php auf dem Zielsystem.
+                // Gemessen auf einem IONOS-Webspace sind diese Header UND die
+                // Cookies der Programmseite noetig; der eigene User-Agent
+                // genuegt dabei. Die Sitzung holt der Watcher selbst nach,
+                // wenn die API ablehnt -- siehe Runner::fetchApi().
                 'api_headers' => [
                     'Accept'           => 'application/json, text/plain, */*',
                     'Referer'          => '{program_url}',
                     'Origin'           => '{base_url}',
                     'X-Requested-With' => 'XMLHttpRequest',
+                    'Accept-Language'  => 'de-DE,de;q=0.9',
                 ],
-                // Vor dem API-Abruf einmal die Programmseite laden, um deren
-                // Cookies einzusammeln. Nur noetig, wenn die API eine Sitzung
-                // verlangt -- kostet sonst einen Request pro Lauf.
-                'warmup' => false,
             ],
             'schedule' => [
                 'quiet_season_seconds' => 12 * 3600,
@@ -134,6 +131,10 @@ final class Config
                 // Wie oft die HTML-Rueckfallebene zusaetzlich geprueft wird,
                 // wenn die API nichts Passendes meldet. Bremst den Minutentakt.
                 'html_crosscheck_seconds' => 1800,
+                // Wie oft das gesamte Kinoprogramm geladen wird (ca. 0,5 MB).
+                // Dazwischen wird gezielt nach der bekannten Film-Kennung
+                // gefragt -- wenige Kilobyte statt einem halben Megabyte.
+                'full_scan_seconds'       => 1800,
             ],
             'notify' => [
                 'bookable_repeat_after' => [6 * 3600, 24 * 3600],
