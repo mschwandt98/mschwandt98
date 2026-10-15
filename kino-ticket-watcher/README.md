@@ -223,6 +223,7 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ```bash
 php tests/run.php           # 111 Unit-Tests, ohne Netzzugriff
 php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
+php tests/smoke.php         # 14 Prüfungen der Entrypoints selbst
 ```
 
 Der Integrationstest startet einen PHP-Webserver, der die API unter ihrem echten
@@ -234,8 +235,13 @@ per Film-Kennung, den API-Ausfall mit Rückfall auf HTML und den `304`-Fall.
 **Die API-Fixtures sind echte Antworten** aus einer HAR-Aufzeichnung der Seite,
 nicht erfunden.
 
-Beide Suiten laufen ab PHP 8.3, damit sie auch auf einer Entwicklungsmaschine
-ohne 8.5 durchlaufen. Die Produktiv-Entrypoints verlangen 8.5 und brechen sonst
+`smoke.php` prüft die Entrypoints selbst — die Fehlerklasse, die zweimal
+zugeschlagen hat und die kein Unit-Test findet: Zugriff auf `STDOUT`/`STDERR`
+(unter CGI fatal) und Benutzung einer Projektklasse *vor* dem `require` des
+Autoloaders. Beides zeigte sich nur als nackter `500 Internal Server Error`.
+
+Alle drei Suiten laufen ab PHP 8.3, damit sie auch auf einer
+Entwicklungsmaschine ohne 8.5 durchlaufen. Die Produktiv-Entrypoints verlangen 8.5 und brechen sonst
 mit Exit-Code 3 ab — ein falsch konfigurierter Cron soll laut scheitern.
 
 ---

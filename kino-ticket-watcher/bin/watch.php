@@ -12,12 +12,15 @@ declare(strict_types=1);
  *   php8.5 bin/watch.php --status
  */
 
+// Diese Pruefung laeuft VOR dem Autoloader und darf deshalb nichts aus dem
+// Projekt benutzen -- auch nicht Kino\Output. echo funktioniert in jeder
+// Umgebung und braucht weder Klassen noch die CLI-Konstanten.
 if (PHP_VERSION_ID < 80500) {
-    Output::error(sprintf(
+    echo sprintf(
         "Dieser Watcher setzt PHP 8.5 voraus, laeuft aber unter %s.\n" .
         "Bitte im IONOS-Cron die richtige PHP-Version eintragen (z. B. /usr/bin/php8.5).\n",
         PHP_VERSION
-    ));
+    );
     exit(3);
 }
 
