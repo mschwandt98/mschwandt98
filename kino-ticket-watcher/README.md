@@ -55,6 +55,27 @@ Für jede gefundene Vorstellung bestimmt der Watcher einen Zustand:
 
 Gemailt wird nur bei **Zustandswechseln**, nicht bei jedem Lauf.
 
+### Wie viele Mails kommen tatsächlich?
+
+| Anlass | Mails |
+|---|---|
+| Marathon taucht im Programm auf | 1 |
+| Termin steht, Vorverkauf noch gesperrt | 1 |
+| **Vorverkauf startet** | 1 Alarm, dann Erinnerungen nach 6 h und 24 h |
+| ausverkauft | 1 |
+| Vorstellung hat stattgefunden | 1 |
+| Lebenszeichen ab September | 1 pro Woche, montags |
+
+Die Erinnerungen werden **ab der ersten Alarmmail gerechnet und mitgezählt** —
+nach der zweiten ist endgültig Ruhe, auch wenn der Vorverkauf noch Wochen läuft.
+Wer gar keine Erinnerung will, setzt in `config.php`:
+
+```php
+'notify' => ['bookable_repeat_after' => []],
+```
+
+Dann kommt genau eine Mail, wenn der Vorverkauf öffnet. Mehr nicht.
+
 ### Der Taktgeber
 
 Gibt es auf dem Server einen echten `crontab` (per SSH `crontab -e`), ist das
@@ -306,7 +327,7 @@ ls -t var/snapshots | head      # Rohantworten für die Nachanalyse
 ## Tests
 
 ```bash
-php tests/run.php           # 135 Unit-Tests, ohne Netzzugriff
+php tests/run.php           # 144 Unit-Tests, ohne Netzzugriff
 php tests/integration.php   # 29 End-to-End-Tests gegen einen lokalen Testserver
 php tests/smoke.php         # 14 Prüfungen der Entrypoints selbst
 ```

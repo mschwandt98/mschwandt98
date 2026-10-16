@@ -64,6 +64,14 @@ return [
         'encryption' => 'auto',
     ],
 
+    // Wie oft an einen laufenden Vorverkauf erinnert wird, gemessen ab der
+    // ersten Alarmmail. Danach kommt nichts mehr.
+    //   [6 * 3600, 24 * 3600]  Vorgabe: nach 6 und nach 24 Stunden
+    //   []                     keine Erinnerungen, nur der eine Alarm
+    'notify' => [
+        'bookable_repeat_after' => [6 * 3600, 24 * 3600],
+    ],
+
     // Mit "php8.5 bin/selftest.php --secret" erzeugen.
     'tick_secret' => '',
 

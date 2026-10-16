@@ -308,6 +308,41 @@ $events = $transitions->detect($bookablePrev, [$mk(Status::Bookable)], [$fp => $
 T::same(1, count($events), 'nach 6 Stunden folgt eine Erinnerung');
 T::same(Event::REMINDER, $events[0]->type, 'Typ ist reminder');
 
+// Das ist die eigentliche Zusicherung: Erinnerungen hoeren auf.
+//
+// Vorher wurde gegen den Zeitpunkt der LETZTEN Mail gerechnet -- den eine
+// Erinnerung selbst neu setzte. Die Uhr begann dadurch nach jeder Erinnerung
+// von vorn, und es kam endlos alle sechs Stunden Post. Jetzt wird ab der
+// ersten Meldung gerechnet und mitgezaehlt.
+$record = static fn (int $ageSeconds, int $sent): array => [$fp => [
+    'at' => $now - $ageSeconds, 'status' => 'BOOKABLE', 'reminders' => $sent,
+]];
+$bookableNow = [$mk(Status::Bookable)];
+
+T::same(0, count($transitions->detect($bookablePrev, $bookableNow, $record(3600, 0), $now)),
+    'nach einer Stunde noch keine Erinnerung');
+T::same(1, count($transitions->detect($bookablePrev, $bookableNow, $record(6 * 3600, 0), $now)),
+    'erste Erinnerung nach 6 Stunden');
+T::same(0, count($transitions->detect($bookablePrev, $bookableNow, $record(7 * 3600, 1), $now)),
+    'die erste ist raus -- die zweite kommt nicht schon nach 7 Stunden');
+T::same(1, count($transitions->detect($bookablePrev, $bookableNow, $record(24 * 3600, 1), $now)),
+    'zweite Erinnerung nach 24 Stunden, gerechnet ab dem Alarm');
+T::same(0, count($transitions->detect($bookablePrev, $bookableNow, $record(25 * 3600, 2), $now)),
+    'danach ist Ruhe');
+T::same(0, count($transitions->detect($bookablePrev, $bookableNow, $record(30 * 86400, 2), $now)),
+    'auch nach einem Monat bleibt es ruhig');
+
+$silent = new Transitions([]);
+T::same(0, count($silent->detect($bookablePrev, $bookableNow, $record(10 * 86400, 0), $now)),
+    'eine leere Liste schaltet Erinnerungen vollstaendig ab');
+
+// Ein Zustand, der vor der Umstellung geschrieben wurde, enthaelt nur
+// Zeitstempel. Die muessen weiter verstanden werden, sonst schlaegt ein
+// laufender Watcher nach dem Update erneut Alarm.
+T::same(['at' => 1760000000, 'status' => '', 'reminders' => 0],
+    Transitions::normalizeRecord(1760000000), 'alter Zeitstempel wird verstanden');
+T::same(null, Transitions::normalizeRecord('unsinn'), 'Schrott ergibt null statt Absturz');
+
 $events = $transitions->detect($previous, [], [], $now);
 T::same(1, count($events), 'verschwundene Vorstellung wird als Warnung gemeldet');
 T::same(Event::WARNING, $events[0]->type, 'Typ ist warning');

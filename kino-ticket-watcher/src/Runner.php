@@ -153,9 +153,13 @@ final class Runner
         // --- Vergleich und Ereignisse ----------------------------------------
         $events = [];
         if ($haveFreshData) {
-            $transitions  = new Transitions((array)$this->config->get('notify.bookable_repeat_after'));
-            $lastNotified = (array)$this->store->meta('notified_at', []);
-            $events = $transitions->detect($this->store->screenings(), $screenings, $lastNotified, $now);
+                $transitions = new Transitions((array)$this->config->get('notify.bookable_repeat_after'));
+            $events = $transitions->detect(
+                $this->store->screenings(),
+                $screenings,
+                $this->notifiedRecords(),
+                $now,
+            );
 
             if ($isFullScan) {
                 $canary = $watchdog->checkCanary($filmCount, $this->store);
@@ -531,15 +535,53 @@ final class Runner
             return $error;
         }
 
-        $notified = (array)$this->store->meta('notified_at', []);
+        // Eine Erinnerung zaehlt hoch, setzt aber den Startzeitpunkt NICHT neu --
+        // sonst beginnt die Frist nach jeder Erinnerung von vorn und es kommt
+        // endlos weiter Post.
+        $notified = $this->notifiedRecords();
         foreach ($events as $event) {
-            if ($event->screening !== null) {
-                $notified[$event->screening->fingerprint()] = time();
+            if ($event->screening === null) {
+                continue;
             }
+            $fp = $event->screening->fingerprint();
+            if ($event->type === Event::REMINDER) {
+                $notified[$fp]['reminders'] = (int)($notified[$fp]['reminders'] ?? 0) + 1;
+                continue;
+            }
+            $notified[$fp] = [
+                'at'        => time(),
+                'status'    => $event->screening->status->value,
+                'reminders' => 0,
+            ];
         }
-        $this->store->setMeta('notified_at', $notified);
+        $this->store->setMeta('notified', $notified);
         $this->save();
         return null;
+    }
+
+    /**
+     * Meldungsstand je Vorstellung, aus dem Zustand gelesen.
+     *
+     * Ein Zustand, der vor der Umstellung geschrieben wurde, enthaelt unter
+     * 'notified_at' nur Zeitstempel. Die werden mitgelesen, damit ein laufender
+     * Watcher nach dem Update nicht erneut Alarm schlaegt.
+     *
+     * @return array<string,array{at:int,status:string,reminders:int}>
+     */
+    private function notifiedRecords(): array
+    {
+        $raw = (array)$this->store->meta('notified', []);
+        if ($raw === []) {
+            $raw = (array)$this->store->meta('notified_at', []);
+        }
+        $out = [];
+        foreach ($raw as $fp => $value) {
+            $record = Transitions::normalizeRecord($value);
+            if (is_string($fp) && $record !== null) {
+                $out[$fp] = $record;
+            }
+        }
+        return $out;
     }
 
     private function save(): void

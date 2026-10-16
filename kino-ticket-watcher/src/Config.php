@@ -145,6 +145,9 @@ final class Config
                 // Fester Betreffbeginn, damit sich darauf eine
                 // Posteingangsregel mit Push-Benachrichtigung legen laesst.
                 'subject_prefix'        => '[KINO-ALARM]',
+                // Erinnerungen an einen laufenden Vorverkauf, gemessen ab der
+                // ERSTEN Alarmmail. Danach ist Ruhe -- es wird mitgezaehlt.
+                // Leere Liste [] schaltet Erinnerungen ganz ab.
                 'bookable_repeat_after' => [6 * 3600, 24 * 3600],
                 'heartbeat_weekday'     => 1,        // Montag
                 'heartbeat_from_month'  => 9,
