@@ -1,0 +1,20 @@
+{
+    "slug": "debfdi",
+    "relevant-countries": [
+        "de"
+    ],
+    "name": "Die Bundesbeauftragte für den Datenschutz und die Informationsfreiheit",
+    "address": "Graurheindorfer Str. 153\n53117 Bonn\nDeutschland",
+    "phone": "+49 228 9977990",
+    "email": "poststelle@bfdi.bund.de",
+    "webform": "https://formulare.bfdi.bund.de/lip/action/invoke.do?id=BfDIBeschwerde",
+    "pgp-fingerprint": "B462 5808 21C7 C168 2CB9  0670 9298 8AA4 7868 04AD",
+    "pgp-url": "https://www.bfdi.bund.de/SharedDocs/Downloads/DE/DokumenteBfDI/BfDIKey.txt?__blob=publicationFile&v=6",
+    "web": "https://www.bfdi.bund.de",
+    "sources": [
+        "https://www.bfdi.bund.de/DE/Service/Kontakt/kontakt_node.html",
+        "https://www.bfdi.bund.de/SharedDocs/Downloads/DE/DokumenteBfDI/BfDIKey.html?nn=252800"
+    ],
+    "complaint-language": "de",
+    "suggested-transport-medium": "email"
+}
