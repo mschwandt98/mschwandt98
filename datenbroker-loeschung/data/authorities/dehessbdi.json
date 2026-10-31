@@ -1,0 +1,20 @@
+{
+    "slug": "dehessbdi",
+    "relevant-countries": [
+        "de"
+    ],
+    "name": "Der Hessische Beauftragte für Datenschutz und Informationsfreiheit",
+    "address": "Postfach 3163\n65021 Wiesbaden\nDeutschland",
+    "phone": "+49 611 14080",
+    "email": "poststelle@datenschutz.hessen.de",
+    "webform": "https://datenschutz.hessen.de/service/beschwerde-uebermitteln",
+    "pgp-fingerprint": "DAC0 B9DA 6EE9 6E28 BC99  F6E0 634F A712 DA3A 9839",
+    "pgp-url": "https://datenschutz.hessen.de/sites/datenschutz.hessen.de/files/2022-10/hbdi_pgp.txt",
+    "web": "https://datenschutz.hessen.de/",
+    "sources": [
+        "https://datenschutz.hessen.de/impressum",
+        "https://datenschutz.hessen.de/ueber-uns/verschluesselte-kommunikation"
+    ],
+    "complaint-language": "de",
+    "suggested-transport-medium": "email"
+}
