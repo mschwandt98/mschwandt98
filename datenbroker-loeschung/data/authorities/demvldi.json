@@ -1,0 +1,20 @@
+{
+    "slug": "demvldi",
+    "relevant-countries": [
+        "de"
+    ],
+    "name": "Der Landesbeauftragte für Datenschutz und Informationsfreiheit Mecklenburg-Vorpommern",
+    "address": "Schloss Schwerin\nLennéstraße 1\n19053 Schwerin\nDeutschland",
+    "phone": "+49 385 594940",
+    "email": "info@datenschutz-mv.de",
+    "webform": "https://www.datenschutz-mv.de/kontakt/online-beschwerdeformular-mitteilung-ueber-einen-datenschutzverstoss/",
+    "pgp-fingerprint": "66E5 EB3B C2F0 E8B7 4D70  0A66 DA65 6823 63BE 680F",
+    "pgp-url": "https://www.datenschutz-mv.de/static/DS/Dateien/pgp_lds_mv.asc",
+    "web": "https://www.datenschutz-mv.de/",
+    "sources": [
+        "https://www.datenschutz-mv.de/kontakt",
+        "https://www.datenschutz-mv.de/datenschutzerklaerung/#email"
+    ],
+    "complaint-language": "de",
+    "suggested-transport-medium": "email"
+}

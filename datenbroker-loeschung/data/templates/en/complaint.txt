@@ -1,0 +1,15 @@
+To Whom It May Concern:
+
+I am hereby lodging a complaint according to Article 77 GDPR. On {request_date}, I sent a request according to Article {request_article} GDPR to the following controller:
+
+{request_recipient}
+
+To date I have not received a conclusive answer, although the period according to Article 12(3) GDPR has expired. On {reminder_date} I reminded the controller and set a further deadline of two weeks; this, too, has passed without a satisfactory answer.
+
+The correspondence is attached below.
+
+Please review this matter and get the controller to comply with my request. You can reach me at {contact}.
+
+Thank you for your support.
+
+Yours sincerely,

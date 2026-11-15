@@ -1,0 +1,11 @@
+To Whom It May Concern:
+
+On {request_date} I sent you a request according to Article {request_article} GDPR (reference {ref}). The original wording is quoted below.
+
+Unfortunately, I have not received a conclusive answer so far. The period of one month according to Article 12(3) sentence 1 GDPR is therefore exceeded.
+
+That is why I am contacting you again. Please answer my request within two weeks of receiving this reminder. Otherwise, I will lodge a complaint with the responsible supervisory authority.
+
+Thank you.
+
+Yours sincerely,

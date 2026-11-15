@@ -1,0 +1,11 @@
+Guten Tag,
+
+am {request_date} habe ich Ihnen eine Anfrage nach Art. {request_article} DSGVO geschickt (Referenz {ref}). Den ursprünglichen Wortlaut finden Sie unten.
+
+Leider habe ich bisher keine abschließende Antwort von Ihnen erhalten. Die Frist von einem Monat nach Art. 12 Abs. 3 S. 1 DSGVO ist damit überschritten.
+
+Ich wende mich daher erneut an Sie und bitte Sie, meine Anfrage innerhalb von zwei Wochen ab Eingang dieser Erinnerung zu beantworten. Andernfalls werde ich Beschwerde bei der zuständigen Datenschutzaufsichtsbehörde einreichen.
+
+Vielen Dank.
+
+Mit freundlichen Grüßen

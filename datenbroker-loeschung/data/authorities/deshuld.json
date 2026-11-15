@@ -1,0 +1,20 @@
+{
+    "slug": "deshuld",
+    "relevant-countries": [
+        "de"
+    ],
+    "name": "Unabhängiges Landeszentrum für Datenschutz Schleswig-Holstein",
+    "address": "Postfach 71 16\n24171 Kiel\nDeutschland",
+    "phone": "+49 431 9881200",
+    "fax": "+49 431 9881223",
+    "email": "mail@datenschutzzentrum.de",
+    "webform": "https://www.datenschutzzentrum.de/formular/beschwerde.php",
+    "pgp-fingerprint": "C41A F0B6 CCA3 2862 FAF5  3728 CB6D 2152 E25B 69E4",
+    "pgp-url": "https://www.datenschutzzentrum.de/uploads/uld/uld.asc",
+    "web": "https://www.datenschutzzentrum.de/",
+    "sources": [
+        "https://www.datenschutzzentrum.de/impressum/"
+    ],
+    "complaint-language": "de",
+    "suggested-transport-medium": "email"
+}

@@ -1,0 +1,15 @@
+Guten Tag,
+
+hiermit reiche ich Beschwerde nach Art. 77 DSGVO ein. Am {request_date} habe ich mich mit einer Anfrage nach Art. {request_article} DSGVO an folgenden Verantwortlichen gewandt:
+
+{request_recipient}
+
+Bis heute habe ich keine abschließende Antwort erhalten, obwohl die Frist nach Art. 12 Abs. 3 DSGVO abgelaufen ist. Am {reminder_date} habe ich den Verantwortlichen erinnert und eine Nachfrist von zwei Wochen gesetzt; auch diese ist ohne zufriedenstellende Antwort verstrichen.
+
+Der Schriftverkehr ist unten angefügt.
+
+Ich bitte Sie, den Vorgang zu prüfen und den Verantwortlichen zur Erfüllung meiner Anfrage zu bewegen. Sie erreichen mich unter {contact}.
+
+Vielen Dank für Ihre Unterstützung.
+
+Mit freundlichen Grüßen
