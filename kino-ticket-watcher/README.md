@@ -48,22 +48,29 @@ Für jede gefundene Vorstellung bestimmt der Watcher einen Zustand:
 | Zustand | Bedeutung | Mail |
 |---|---|---|
 | `ABSENT` | kein passender Film im Programm | – |
-| `PAGE_EXISTS` | Film gelistet, aber ohne Vorstellung | ja |
-| `DATED` | Termin steht, Vorverkauf noch gesperrt | ja |
+| `PAGE_EXISTS` | Film gelistet, aber ohne Vorstellung | – (nur Protokoll) |
+| `DATED` | Termin steht, Vorverkauf noch gesperrt | – (nur Protokoll) |
 | `BOOKABLE` | Buchung offen | **Hauptalarm** |
-| `SOLD_OUT` | ausverkauft | ja |
+| `SOLD_OUT` | ausverkauft | – (nur Protokoll) |
 
-Gemailt wird nur bei **Zustandswechseln**, nicht bei jedem Lauf.
+Gemailt wird nur bei **Zustandswechseln**, nicht bei jedem Lauf, und
+standardmäßig **nur, wenn man buchen kann**. Alle anderen Wechsel landen im
+Zustand (`var/state.json`), aber nicht im Postfach. Wer mehr Post will:
+
+```php
+'notify' => ['mail_on_status' => ['DATED', 'BOOKABLE']],
+```
 
 ### Wie viele Mails kommen tatsächlich?
 
 | Anlass | Mails |
 |---|---|
-| Marathon taucht im Programm auf | 1 |
-| Termin steht, Vorverkauf noch gesperrt | 1 |
+| Marathon taucht im Programm auf | 0 |
+| Termin steht, Vorverkauf noch gesperrt | 0 |
 | **Vorverkauf startet** | 1 Alarm, dann Erinnerungen nach 6 h und 24 h |
-| ausverkauft | 1 |
-| Vorstellung hat stattgefunden | 1 |
+| ausverkauft | 0 |
+| Vorstellung hat stattgefunden | 0 |
+| Defekt (Vorstellung verschwunden, Taktgeber stumm, Parser kaputt) | 1 |
 | Lebenszeichen ab September | 1 pro Woche, montags |
 
 Die Erinnerungen werden **ab der ersten Alarmmail gerechnet und mitgezählt** —

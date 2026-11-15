@@ -10,6 +10,7 @@ use Kino\Http\Client;
 use Kino\Match\TitleMatcher;
 use Kino\Model\Screening;
 use Kino\Model\Status;
+use Kino\Notify\MailFilter;
 use Kino\Notify\Mailer;
 use Kino\Notify\Templates;
 use Kino\Parse\NextData;
@@ -153,7 +154,7 @@ final class Runner
         // --- Vergleich und Ereignisse ----------------------------------------
         $events = [];
         if ($haveFreshData) {
-                $transitions = new Transitions((array)$this->config->get('notify.bookable_repeat_after'));
+            $transitions = new Transitions((array)$this->config->get('notify.bookable_repeat_after'));
             $events = $transitions->detect(
                 $this->store->screenings(),
                 $screenings,
@@ -185,8 +186,12 @@ final class Runner
             );
             $this->store->setMeta('last_heartbeat_at', date('c', $now));
         }
-        if ($forceNotify && $events === []) {
-            $events[] = new Event(
+        // Alles wird protokolliert, gemailt aber nur, was zum Handeln taugt --
+        // Vorgabe: der Vorverkauf ist offen. Siehe Notify\MailFilter.
+        $mailFilter = new MailFilter((array)$this->config->get('notify.mail_on_status', [Status::Bookable->value]));
+        $mailEvents = $mailFilter->filter($events);
+        if ($forceNotify && $mailEvents === []) {
+            $mailEvents[] = $events[] = new Event(
                 Event::WARNING,
                 'Testmail (--force-notify). Wenn du diese Mail liest, funktioniert die gesamte Kette '
                 . 'von HTTP ueber die API bis zum SMTP-Versand.',
@@ -196,8 +201,8 @@ final class Runner
         $this->store->setMeta('cookies', $http->cookies());
         $this->persist($screenings, $events, $errors, $scheduler, $now, $haveFreshData);
 
-        if ($events !== []) {
-            $mailError = $this->notify($events);
+        if ($mailEvents !== []) {
+            $mailError = $this->notify($mailEvents);
             if ($mailError !== null) {
                 $errors[] = 'Mailversand: ' . $mailError;
                 $this->store->appendEvent(['type' => 'mail_failed', 'error' => $mailError]);

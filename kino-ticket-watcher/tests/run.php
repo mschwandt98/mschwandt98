@@ -23,6 +23,7 @@ use Kino\Http\Robots;
 use Kino\Match\TitleMatcher;
 use Kino\Model\Screening;
 use Kino\Model\Status;
+use Kino\Notify\MailFilter;
 use Kino\Notify\Mailer;
 use Kino\Notify\Templates;
 use Kino\Parse\Dom;
@@ -377,6 +378,29 @@ T::ok($watchdog->checkTickSilence(date('c', $sept - 4 * 3600), false, $sept) ===
     'ausserhalb der Saison wird nicht gewarnt');
 T::ok($watchdog->checkTickSilence(null, true, $sept) === null,
     'beim ersten Lauf gibt es keinen Vorgaenger -- keine Warnung');
+
+// ------------------------------------------------------------- Mail-Filter
+
+T::group('Mail-Filter -- nur buchbar wird gemailt');
+$mailFilter = new MailFilter((array)$config->get('notify.mail_on_status'));
+$announced = new Event(Event::NEW_MATCH, 'Neu gefunden', new Screening(
+    'Der Herr der Ringe Triple Extended Version', $url, Status::PageExists));
+T::ok(!$mailFilter->shouldMail($announced),
+    '"angekuendigt, noch ohne Termin" erzeugt keine Mail mehr');
+T::ok(!$mailFilter->shouldMail(new Event(Event::NEW_MATCH, 'x', $mk(Status::Dated))),
+    'Termin ohne Vorverkauf erzeugt keine Mail');
+T::ok($mailFilter->shouldMail(new Event(Event::STATUS_CHANGED, 'x', $mk(Status::Bookable), 'DATED')),
+    'buchbar wird gemailt');
+T::ok($mailFilter->shouldMail(new Event(Event::REMINDER, 'x', $mk(Status::Bookable))),
+    'Erinnerungen an den offenen Vorverkauf ebenfalls');
+T::ok($mailFilter->shouldMail(new Event(Event::WARNING, 'Defekt')),
+    'Warnungen ueber Defekte kommen weiter');
+T::ok(!$mailFilter->shouldMail(new Event(Event::STATUS_CHANGED, 'hat stattgefunden', previousStatus: 'DATED')),
+    '"hat stattgefunden" ist reine Info und wird nicht gemailt');
+T::same(1, count($mailFilter->filter([$announced, new Event(Event::WARNING, 'Defekt')])),
+    'filter() laesst nur das Mailwuerdige durch');
+T::ok((new MailFilter(['dated', 'BOOKABLE']))->shouldMail(new Event(Event::NEW_MATCH, 'x', $mk(Status::Dated))),
+    'per Konfiguration lassen sich weitere Zustaende zuschalten');
 
 // ----------------------------------------------------------------- Scheduler
 

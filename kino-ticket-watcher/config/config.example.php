@@ -70,6 +70,12 @@ return [
     //   []                     keine Erinnerungen, nur der eine Alarm
     'notify' => [
         'bookable_repeat_after' => [6 * 3600, 24 * 3600],
+
+        // Bei welchen Zustaenden gemailt wird. Vorgabe: nur, wenn man buchen
+        // kann. 'PAGE_EXISTS' (angekuendigt), 'DATED' (Termin steht) und
+        // 'SOLD_OUT' werden sonst nur protokolliert. Warnungen ueber Defekte
+        // und das woechentliche Lebenszeichen kommen unabhaengig davon.
+        'mail_on_status' => ['BOOKABLE'],
     ],
 
     // Mit "php8.5 bin/selftest.php --secret" erzeugen.

@@ -149,6 +149,11 @@ final class Config
                 // ERSTEN Alarmmail. Danach ist Ruhe -- es wird mitgezaehlt.
                 // Leere Liste [] schaltet Erinnerungen ganz ab.
                 'bookable_repeat_after' => [6 * 3600, 24 * 3600],
+                // Bei welchen Zustaenden eine Vorstellung gemailt wird. Vorgabe:
+                // nur, wenn sie buchbar ist. Alles andere wird nur protokolliert.
+                // Moeglich: 'PAGE_EXISTS', 'DATED', 'BOOKABLE', 'SOLD_OUT'.
+                // Warnungen ueber Defekte und das Lebenszeichen kommen immer.
+                'mail_on_status'        => ['BOOKABLE'],
                 'heartbeat_weekday'     => 1,        // Montag
                 'heartbeat_from_month'  => 9,
                 'tick_silence_alert'    => 3600,     // externer Taktgeber stumm?
