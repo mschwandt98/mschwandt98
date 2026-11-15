@@ -20,30 +20,32 @@ final class Watchdog
     }
 
     /**
-     * Canary: Findet der Parser im gesamten Kinoprogramm null Filmlinks, ist
-     * das ein Parserfehler und kein leeres Ergebnis. Diese eine Regel faengt
-     * die Mehrzahl aller Layout-Wechsel ab.
+     * Canary: Meldet die Quelle fuer das gesamte Kino null Filme, ist das ein
+     * Auswertungsfehler und kein leeres Ergebnis -- ein CinemaxX-Multiplex hat
+     * immer Programm. Diese eine Regel faengt die Mehrzahl aller Aenderungen
+     * an API oder Seitenstruktur ab.
      *
-     * -1 bedeutet "Seite unveraendert (304)" -- daraus laesst sich nichts
-     * ableiten, also auch kein Alarm.
+     * Ein negativer Wert bedeutet "unveraendert (304)" -- daraus laesst sich
+     * nichts ableiten, also auch kein Alarm.
      */
-    public function checkCanary(int $programLinkCount, Store $store): ?Event
+    public function checkCanary(int $filmCount, Store $store): ?Event
     {
-        if ($programLinkCount !== 0) {
-            if ($programLinkCount > 0) {
-                $store->setMeta('last_program_link_count', $programLinkCount);
+        if ($filmCount !== 0) {
+            if ($filmCount > 0) {
+                $store->setMeta('last_film_count', $filmCount);
             }
             return null;
         }
-        $previously = (int)$store->meta('last_program_link_count', 0);
+        $previously = (int)$store->meta('last_film_count', 0);
         if ($previously === 0) {
             return null; // noch nie etwas gefunden -> erster Lauf, kein Alarm
         }
         return new Event(
             Event::WARNING,
-            'Parser findet im Magdeburger Programm keinen einzigen Filmlink mehr '
-            . "(zuletzt waren es $previously). Das deutet auf eine Aenderung der Seitenstruktur hin.",
-            details: ['previous_link_count' => $previously],
+            'Die Quelle meldet fuer das gesamte Kino keinen einzigen Film mehr '
+            . "(zuletzt waren es $previously). Das deutet auf eine Aenderung der API "
+            . 'oder der Seitenstruktur hin -- bitte nachsehen.',
+            details: ['previous_film_count' => $previously],
         );
     }
 
@@ -69,14 +71,22 @@ final class Watchdog
      * Meldet, wenn der externe Taktgeber stumm geworden ist. Ohne diese
      * Pruefung faellt sein Ausfall erst auf, wenn der Marathon vorbei ist.
      */
-    public function checkTickSilence(Store $store, bool $hotSeason, ?int $now = null): ?Event
+    /**
+     * @param string|null $previousTickAt Zeitpunkt des VORIGEN Laufs.
+     *
+     * Der Wert muss ausdruecklich uebergeben werden. Zuvor las diese Methode
+     * ihn selbst aus dem Zustand -- den der Runner zu Beginn des Laufs aber
+     * schon auf "jetzt" gesetzt hatte. Die Pruefung sah damit stets null
+     * Sekunden Abstand und konnte nie anschlagen: genau der Mechanismus, der
+     * einen stillen Ausfall des Taktgebers melden soll.
+     */
+    public function checkTickSilence(?string $previousTickAt, bool $hotSeason, ?int $now = null): ?Event
     {
         $now ??= time();
-        $lastTick = $store->meta('last_tick_at');
-        if (!$hotSeason || !is_string($lastTick)) {
+        if (!$hotSeason || !is_string($previousTickAt) || $previousTickAt === '') {
             return null;
         }
-        $ts = strtotime($lastTick);
+        $ts = strtotime($previousTickAt);
         $limit = (int)$this->cfg['tick_silence_alert'];
         if ($ts === false || ($now - $ts) < $limit) {
             return null;
@@ -84,9 +94,10 @@ final class Watchdog
         $hours = round(($now - $ts) / 3600, 1);
         return new Event(
             Event::WARNING,
-            "Der externe Taktgeber hat sich seit $hours Stunden nicht gemeldet. "
-            . 'Es wird derzeit nur alle 6 Stunden geprueft. Bitte cron-job.org pruefen.',
-            details: ['last_tick_at' => $lastTick],
+            "Der Taktgeber hat sich seit $hours Stunden nicht gemeldet -- erwartet "
+            . 'werden Abstaende von wenigen Minuten. Bitte den Cronjob pruefen '
+            . '(crontab -l) beziehungsweise den externen Dienst.',
+            details: ['previous_tick_at' => $previousTickAt],
         );
     }
 

@@ -19,6 +19,8 @@ final readonly class Screening
         public ?string $presaleStartsAt = null, // ISO-8601, aus "Vorverkauf ab ..."
         public ?string $bookingUrl = null,
         public string $source = 'unknown',
+        public ?string $note = null,   // Saal, Preis o. ae. -- rein informativ
+        public ?string $filmId = null, // API-Kennung, z. B. "HO00001617"
     ) {
     }
 
@@ -63,6 +65,8 @@ final readonly class Screening
             $this->presaleStartsAt,
             $this->bookingUrl,
             $this->source,
+            $this->note,
+            $this->filmId,
         );
     }
 
@@ -86,6 +90,8 @@ final readonly class Screening
             'presale_starts_at'=> $this->presaleStartsAt,
             'booking_url'      => $this->bookingUrl,
             'source'           => $this->source,
+            'note'             => $this->note,
+            'film_id'          => $this->filmId,
         ];
     }
 
@@ -99,6 +105,8 @@ final readonly class Screening
             $a['presale_starts_at'] ?? null,
             $a['booking_url'] ?? null,
             (string)($a['source'] ?? 'unknown'),
+            $a['note'] ?? null,
+            $a['film_id'] ?? null,
         );
     }
 }

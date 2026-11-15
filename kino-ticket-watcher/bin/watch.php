@@ -12,31 +12,37 @@ declare(strict_types=1);
  *   php8.5 bin/watch.php --status
  */
 
+// Diese Pruefung laeuft VOR dem Autoloader und darf deshalb nichts aus dem
+// Projekt benutzen -- auch nicht Kino\Output. echo funktioniert in jeder
+// Umgebung und braucht weder Klassen noch die CLI-Konstanten.
 if (PHP_VERSION_ID < 80500) {
-    fwrite(STDERR, sprintf(
+    echo sprintf(
         "Dieser Watcher setzt PHP 8.5 voraus, laeuft aber unter %s.\n" .
         "Bitte im IONOS-Cron die richtige PHP-Version eintragen (z. B. /usr/bin/php8.5).\n",
         PHP_VERSION
-    ));
+    );
     exit(3);
 }
 
 require __DIR__ . '/../src/autoload.php';
 
 use Kino\Config;
+use Kino\Output;
 use Kino\Runner;
 use Kino\State\Store;
 
 $options = getopt('', [
-    'dry-run', 'verbose', 'force-notify', 'ignore-schedule', 'status', 'help', 'config::',
+    'dry-run', 'verbose', 'quiet', 'force-notify', 'ignore-schedule', 'status', 'help', 'config::',
 ]);
+$quiet = isset($options['quiet']) && !isset($options['verbose']);
 
 if (isset($options['help'])) {
-    fwrite(STDOUT, <<<TXT
+    Output::line(<<<TXT
     Kino-Ticket-Watcher
 
       --dry-run           pruefen, aber nichts speichern und keine Mail senden
       --verbose           ausfuehrliche Ausgabe
+      --quiet             nur Ereignisse und Fehler ausgeben -- fuer den Cronjob
       --ignore-schedule   pruefen, auch wenn noch nicht faellig
       --force-notify      Testmail senden, auch ohne Aenderung
       --status            aktuellen Zustand anzeigen und beenden
@@ -52,12 +58,14 @@ try {
     $store = new Store($config->varDir());
 
     if (isset($options['status'])) {
-        fwrite(STDOUT, renderStatus($store));
+        Output::line(renderStatus($store));
         exit(0);
     }
 
     if (!$store->acquireLock()) {
-        fwrite(STDOUT, "Ein anderer Lauf ist bereits aktiv -- dieser Tick wird uebersprungen.\n");
+        if (!$quiet) {
+            Output::line("Ein anderer Lauf ist bereits aktiv -- dieser Tick wird uebersprungen.\n");
+        }
         exit(0);
     }
 
@@ -74,30 +82,38 @@ try {
     );
 
     if (!$result['ran']) {
-        fwrite(STDOUT, $result['reason'] . "\n");
+        if (!$quiet) {
+            Output::line($result['reason'] . "\n");
+        }
         exit(0);
     }
 
-    fwrite(STDOUT, sprintf(
-        "Geprueft: %d Treffer, %d Ereignis(se), %d Fehler.\n",
-        count($result['screenings']),
-        count($result['events']),
-        count($result['errors'])
-    ));
-    foreach ($result['screenings'] as $screening) {
-        fwrite(STDOUT, sprintf("  [%s] %s -- %s\n",
-            $screening->status->value, $screening->title, $screening->when()));
-    }
-    foreach ($result['events'] as $event) {
-        fwrite(STDOUT, '  -> ' . $event->summary . "\n");
+    // Im Cron-Betrieb nur melden, wenn es etwas zu melden gibt. Bei einem
+    // Takt von zwei Minuten liefe die Logdatei sonst mit Routinezeilen voll.
+    $worthReporting = $result['events'] !== [] || $result['errors'] !== [];
+    if (!$quiet || $worthReporting) {
+        Output::line(sprintf(
+            "%s Geprueft: %d Treffer, %d Ereignis(se), %d Fehler.\n",
+            date('Y-m-d H:i:s'),
+            count($result['screenings']),
+            count($result['events']),
+            count($result['errors'])
+        ));
+        foreach ($result['screenings'] as $screening) {
+            Output::line(sprintf("  [%s] %s -- %s\n",
+                $screening->status->value, $screening->title, $screening->when()));
+        }
+        foreach ($result['events'] as $event) {
+            Output::line('  -> ' . $event->summary . "\n");
+        }
     }
     foreach ($result['errors'] as $error) {
-        fwrite(STDERR, '  !! ' . $error . "\n");
+        Output::error('  !! ' . $error . "\n");
     }
 
     exit($result['errors'] === [] ? 0 : 2);
 } catch (Throwable $e) {
-    fwrite(STDERR, 'Abbruch: ' . $e->getMessage() . "\n");
+    Output::error('Abbruch: ' . $e->getMessage() . "\n");
     exit(1);
 } finally {
     if (isset($store)) {

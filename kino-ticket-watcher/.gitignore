@@ -1,3 +1,4 @@
 /config/config.php
 /var/*
 !/var/.htaccess
+/tests/site/last-query.txt

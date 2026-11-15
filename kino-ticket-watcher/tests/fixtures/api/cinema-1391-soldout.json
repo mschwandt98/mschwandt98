@@ -1,0 +1,182 @@
+{
+ "result": [
+  {
+   "showingGroups": [
+    {
+     "date": "2026-11-07T00:00:00",
+     "datePrefix": "",
+     "pricingTypes": [],
+     "sessions": [
+      {
+       "sessionId": "44604",
+       "bookingUrl": "/buchtickets/zusammenfassung/1391/HO00001617/44604",
+       "formattedPrice": "22,99 €",
+       "isPriceVisible": true,
+       "duration": 0,
+       "startTime": "2026-11-07T12:00:00",
+       "endTime": "2026-11-07T15:48:00",
+       "showTimeWithTimeZone": "2026-11-07T12:00:00+01:00",
+       "isSoldOut": true,
+       "color": null,
+       "isMidnightSession": false,
+       "isBookingAvailable": false,
+       "attributes": [
+        {
+         "name": "Filmklassiker",
+         "shortName": "Filmklassiker",
+         "value": "filmklassiker",
+         "description": "",
+         "attributeType": "Movie",
+         "color": "",
+         "borderGradient": [],
+         "backgroundImageUrl": null,
+         "iconName": null
+        },
+        {
+         "name": "Deutsch",
+         "shortName": "",
+         "value": "german",
+         "description": "",
+         "attributeType": "Language",
+         "color": "",
+         "borderGradient": [],
+         "backgroundImageUrl": null,
+         "iconName": null
+        },
+        {
+         "name": "Single Seat",
+         "shortName": "",
+         "value": "single-seat",
+         "description": "SingleSeat",
+         "attributeType": "Session",
+         "color": "",
+         "borderGradient": [],
+         "backgroundImageUrl": null,
+         "iconName": null
+        }
+       ],
+       "screenName": "Kino 07",
+       "sessionPricingDisplayStatus": 1,
+       "wheelchairSeatAvailability": 1
+      }
+     ]
+    }
+   ],
+   "filmId": "HO00001617",
+   "certificate": {
+    "name": "FSK 16",
+    "description": "",
+    "src": "https://www.cinemaxx.de/-/media/cinemaxxde/img/certificates/fsk_16.png?rev=a44bcbf337d3402381e460f665d6b234"
+   },
+   "secondaryCertificates": [],
+   "filmUrl": "https://www.cinemaxx.de/film/der-herr-der-ringe-triple-extended-version",
+   "filmAttributes": [
+    {
+     "name": "Filmklassiker",
+     "shortName": "Filmklassiker",
+     "value": "filmklassiker",
+     "description": "",
+     "attributeType": "Movie",
+     "color": "",
+     "borderGradient": [],
+     "backgroundImageUrl": null,
+     "iconName": null
+    }
+   ],
+   "posterImageSrc": "https://www.cinemaxx.de/-/media/cinemaxxde/img/lotr-deu.jpg?rev=a0d8f6149f67476987faf15f91778061",
+   "cast": "",
+   "releaseDate": "2026-11-07T00:00:00",
+   "runningTime": 0,
+   "isDurationUnknown": false,
+   "synopsisShort": "Das Herr der Ringe-Triple wird eine voraussichtliche Länge von ca. 726 Minuten haben, exkl. Pause.",
+   "filmTitle": "Der Herr der Ringe Triple (Extended Version)",
+   "hasSessions": true,
+   "hasTrailer": false,
+   "embargoMessage": null,
+   "embargoEndDate": null,
+   "embargoLevel": null,
+   "priceMessage": "",
+   "alternativeCertificate": {
+    "name": null,
+    "description": null,
+    "src": null
+   },
+   "panelImageUrl": "https://www.cinemaxx.de/-/media/global/img/film-panel-default-image.png?rev=-1",
+   "filmStatus": 2,
+   "trailers": [],
+   "director": "",
+   "distributor": "",
+   "movieXchangeCode": "",
+   "crossCountryMovieXchangeId": "",
+   "originalTitle": "",
+   "showingInCinemas": [
+    "1107",
+    "1702",
+    "1261",
+    "1421",
+    "1384",
+    "1391",
+    "1231",
+    "1931",
+    "1703",
+    "1341",
+    "1061",
+    "1801",
+    "1477",
+    "1281",
+    "1208",
+    "1207",
+    "1741",
+    "1304",
+    "1631",
+    "1011",
+    "1336",
+    "1431",
+    "1791",
+    "1861",
+    "1531",
+    "1206",
+    "1454",
+    "1701"
+   ],
+   "genres": [],
+   "sessionAttributes": [
+    {
+     "name": "Filmklassiker",
+     "shortName": "Filmklassiker",
+     "value": "filmklassiker",
+     "description": "",
+     "attributeType": "Movie",
+     "color": "",
+     "borderGradient": [],
+     "backgroundImageUrl": null,
+     "iconName": null
+    },
+    {
+     "name": "Deutsch",
+     "shortName": "",
+     "value": "german",
+     "description": "",
+     "attributeType": "Language",
+     "color": "",
+     "borderGradient": [],
+     "backgroundImageUrl": null,
+     "iconName": null
+    },
+    {
+     "name": "Single Seat",
+     "shortName": "",
+     "value": "single-seat",
+     "description": "SingleSeat",
+     "attributeType": "Session",
+     "color": "",
+     "borderGradient": [],
+     "backgroundImageUrl": null,
+     "iconName": null
+    }
+   ]
+  }
+ ],
+ "responseCode": 0,
+ "errorMessage": null
+}

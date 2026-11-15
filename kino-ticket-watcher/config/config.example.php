@@ -14,6 +14,10 @@ return [
     'timezone' => 'Europe/Berlin',
 
     'cinema' => [
+        // Numerische Kino-Kennung der Showings-API. 1391 = CinemaxX Magdeburg,
+        // belegt aus dem __NEXT_DATA__ der Programmseite. Leer lassen, um sie
+        // automatisch ermitteln und im Zustand merken zu lassen.
+        'id'           => '1391',
         'city'         => 'magdeburg',
         'name'         => 'CinemaxX Magdeburg',
         'base_url'     => 'https://www.cinemaxx.de',
@@ -23,6 +27,11 @@ return [
     // Bewusst breit: Ein Fehlalarm kostet eine Mail, ein verpasster Treffer
     // kostet den Marathon. Weitere Eintraege hier ergaenzen, wenn du auch
     // andere Reihen oder Previews beobachten willst.
+    //
+    // CinemaxX nennt den Film 2026 "Der Herr der Ringe Triple (Extended
+    // Version)" -- das erste Muster trifft darauf. Ein regulaerer
+    // Hobbit-Termin trifft absichtlich NICHT; ein "Hobbit Trilogie Marathon"
+    // dagegen schon.
     'watch_patterns' => [
         '/herr[ -]?der[ -]?ringe/u',
         '/lord[ -]?of[ -]?the[ -]?rings/u',
@@ -35,7 +44,9 @@ return [
     // Maerz als Marathon durchgeht.
     'date_window' => ['from' => '10-01', 'to' => '02-28'],
 
-    // Zusaetzlich zu Programmuebersicht und Sitemap immer mitgepruefte URLs.
+    // Nur fuer die HTML-Rueckfallebene relevant, falls die API einmal ausfaellt.
+    // Im Normalfall findet der Watcher den Film ueber die API, ohne eine URL
+    // zu kennen -- wichtig, weil der Slug jedes Jahr anders lautet.
     'known_urls' => [
         'https://www.cinemaxx.de/kinoprogramm/magdeburg/film/der-herr-der-ringe-triple-extended-version',
     ],
@@ -48,7 +59,23 @@ return [
         'from'       => 'watcher@example.com',
         'from_name'  => 'Kino-Watcher',
         'to'         => 'du@example.com',
-        'encryption' => 'tls',                 // tls = STARTTLS (587), ssl = implizit (465)
+        // 'auto' = aus dem Port ableiten (465 -> TLS sofort, 587 -> STARTTLS).
+        // Nur setzen, wenn der Provider etwas anderes verlangt: 'ssl', 'tls', 'none'.
+        'encryption' => 'auto',
+    ],
+
+    // Wie oft an einen laufenden Vorverkauf erinnert wird, gemessen ab der
+    // ersten Alarmmail. Danach kommt nichts mehr.
+    //   [6 * 3600, 24 * 3600]  Vorgabe: nach 6 und nach 24 Stunden
+    //   []                     keine Erinnerungen, nur der eine Alarm
+    'notify' => [
+        'bookable_repeat_after' => [6 * 3600, 24 * 3600],
+
+        // Bei welchen Zustaenden gemailt wird. Vorgabe: nur, wenn man buchen
+        // kann. 'PAGE_EXISTS' (angekuendigt), 'DATED' (Termin steht) und
+        // 'SOLD_OUT' werden sonst nur protokolliert. Warnungen ueber Defekte
+        // und das woechentliche Lebenszeichen kommen unabhaengig davon.
+        'mail_on_status' => ['BOOKABLE'],
     ],
 
     // Mit "php8.5 bin/selftest.php --secret" erzeugen.
@@ -57,5 +84,26 @@ return [
     'http' => [
         // Kontaktadresse eintragen: So kann CinemaxX sich melden, statt zu sperren.
         'user_agent' => 'KinoTicketWatcher/1.0 (persoenlicher Benachrichtigungs-Watcher; du@example.com)',
+
+        // Die Showings-API antwortet einem nackten Abruf mit 401. Noetig sind
+        // diese Header UND die Cookies der Programmseite -- gemessen mit
+        // bin/probe-api.php auf einem IONOS-Webspace.
+        //
+        // Die Cookies holt sich der Watcher selbst: Er bewahrt sie im Zustand
+        // auf und laedt die Programmseite nur dann nach, wenn die API mit 401
+        // antwortet. Dafuer ist hier nichts einzustellen.
+        //
+        // Antwortet die API trotzdem mit 401 oder 403, ermittelt
+        //
+        //     php8.5 bin/probe-api.php
+        //
+        // die noetige Kombination und gibt den Abschnitt zum Einsetzen aus.
+        // {base_url} und {program_url} werden automatisch ersetzt.
+        // Wichtig: KEIN Origin-Header. Gemessen auf einem IONOS-Webspace
+        // antwortet die API mit Origin stets 401, ohne ihn 200.
+        'api_headers' => [
+            'Accept'          => 'application/json, text/plain, */*',
+            'Accept-Language' => 'de-DE,de;q=0.9',
+        ],
     ],
 ];

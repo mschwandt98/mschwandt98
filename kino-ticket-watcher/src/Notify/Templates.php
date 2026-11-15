@@ -16,6 +16,17 @@ final class Templates
 {
     public const SUBJECT_PREFIX = '[KINO-ALARM]';
 
+    private string $prefix;
+
+    /**
+     * @param string $prefix Betreff-Praefix. Bleibt bei der Vorgabe, damit
+     *        eine einmal eingerichtete Posteingangsregel weiter greift.
+     */
+    public function __construct(string $prefix = self::SUBJECT_PREFIX)
+    {
+        $this->prefix = $prefix !== '' ? $prefix : self::SUBJECT_PREFIX;
+    }
+
     /** @param list<Event> $events */
     public function subject(array $events, string $cinemaName): string
     {
@@ -23,7 +34,7 @@ final class Templates
             if ($event->isAlarm() && $event->screening !== null) {
                 return sprintf(
                     '%s %s %s -- jetzt buchbar',
-                    self::SUBJECT_PREFIX,
+                    $this->prefix,
                     self::shortTitle($event->screening->title),
                     $event->screening->when()
                 );
@@ -31,17 +42,17 @@ final class Templates
         }
         $first = $events[0] ?? null;
         if ($first === null) {
-            return self::SUBJECT_PREFIX . ' Statusmeldung ' . $cinemaName;
+            return $this->prefix . ' Statusmeldung ' . $cinemaName;
         }
         if ($first->screening !== null) {
             return sprintf(
                 '%s %s: %s',
-                self::SUBJECT_PREFIX,
+                $this->prefix,
                 self::shortTitle($first->screening->title),
                 $first->screening->status->label()
             );
         }
-        return self::SUBJECT_PREFIX . ' ' . self::trim($first->summary, 70);
+        return $this->prefix . ' ' . self::trim($first->summary, 70);
     }
 
     /** @param list<Event> $events */
@@ -58,7 +69,7 @@ final class Templates
 
         if ($alarm?->screening !== null) {
             $s = $alarm->screening;
-            $lines[] = 'JETZT BUCHBAR: ' . $s->title;
+            $lines[] = 'Jetzt buchbar: ' . $s->title;
             $lines[] = '';
             $lines[] = 'Direkt zur Buchung:';
             $lines[] = '  ' . ($s->bookingUrl ?? $s->url);

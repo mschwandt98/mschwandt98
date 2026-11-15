@@ -63,6 +63,10 @@ final class Config
         return [
             'timezone' => 'Europe/Berlin',
             'cinema'   => [
+                // Numerische Kino-Kennung der Showings-API. 1391 = Magdeburg,
+                // belegt aus dem __NEXT_DATA__ der Programmseite. Leer lassen,
+                // um sie automatisch ermitteln zu lassen.
+                'id'           => '1391',
                 'city'         => 'magdeburg',
                 'name'         => 'CinemaxX Magdeburg',
                 'base_url'     => 'https://www.cinemaxx.de',
@@ -88,7 +92,11 @@ final class Config
             'smtp' => [
                 'host' => '', 'port' => 587, 'user' => '', 'pass' => '',
                 'from' => '', 'from_name' => 'Kino-Watcher', 'to' => '',
-                'encryption' => 'tls',   // tls = STARTTLS (587), ssl = implizit (465), none
+                // 'auto' leitet die Verschluesselung aus dem Port ab:
+                // 465 -> ssl (TLS sofort), sonst tls (STARTTLS). Die haeufigste
+                // Fehlkonfiguration ist Port 465 mit STARTTLS; dann legt der
+                // Server ohne Erklaerung auf.
+                'encryption' => 'auto',
                 'timeout' => 20,
             ],
             'tick_secret' => '',
@@ -98,6 +106,19 @@ final class Config
                 'min_interval_per_host' => 2,
                 'respect_robots' => true,
                 'user_agent' => 'KinoTicketWatcher/1.0 (persoenlicher Benachrichtigungs-Watcher)',
+                // KEIN Origin-Header. Gemessen auf einem IONOS-Webspace:
+                // Jede Variante MIT Origin antwortet mit 401, jede ohne ihn
+                // mit 200. Der Endpunkt behandelt einen gesetzten Origin als
+                // fremde Herkunft und weist den Request ab -- ein eigenes
+                // Backend schickt eben keinen.
+                //
+                // Was die API braucht, ist die Sitzung der Programmseite. Die
+                // holt der Watcher selbst nach, wenn sie fehlt oder ablaeuft
+                // (siehe Runner::fetchApi()).
+                'api_headers' => [
+                    'Accept'          => 'application/json, text/plain, */*',
+                    'Accept-Language' => 'de-DE,de;q=0.9',
+                ],
             ],
             'schedule' => [
                 'quiet_season_seconds' => 12 * 3600,
@@ -112,9 +133,27 @@ final class Config
                 'sold_out_seconds'     => 6 * 3600,
                 'error_backoff'        => [300, 600, 1200, 2400, 3600],
                 'jitter_seconds'       => 20,
+                // Wie oft die HTML-Rueckfallebene zusaetzlich geprueft wird,
+                // wenn die API nichts Passendes meldet. Bremst den Minutentakt.
+                'html_crosscheck_seconds' => 1800,
+                // Wie oft das gesamte Kinoprogramm geladen wird (ca. 0,5 MB).
+                // Dazwischen wird gezielt nach der bekannten Film-Kennung
+                // gefragt -- wenige Kilobyte statt einem halben Megabyte.
+                'full_scan_seconds'       => 1800,
             ],
             'notify' => [
+                // Fester Betreffbeginn, damit sich darauf eine
+                // Posteingangsregel mit Push-Benachrichtigung legen laesst.
+                'subject_prefix'        => '[KINO-ALARM]',
+                // Erinnerungen an einen laufenden Vorverkauf, gemessen ab der
+                // ERSTEN Alarmmail. Danach ist Ruhe -- es wird mitgezaehlt.
+                // Leere Liste [] schaltet Erinnerungen ganz ab.
                 'bookable_repeat_after' => [6 * 3600, 24 * 3600],
+                // Bei welchen Zustaenden eine Vorstellung gemailt wird. Vorgabe:
+                // nur, wenn sie buchbar ist. Alles andere wird nur protokolliert.
+                // Moeglich: 'PAGE_EXISTS', 'DATED', 'BOOKABLE', 'SOLD_OUT'.
+                // Warnungen ueber Defekte und das Lebenszeichen kommen immer.
+                'mail_on_status'        => ['BOOKABLE'],
                 'heartbeat_weekday'     => 1,        // Montag
                 'heartbeat_from_month'  => 9,
                 'tick_silence_alert'    => 3600,     // externer Taktgeber stumm?
